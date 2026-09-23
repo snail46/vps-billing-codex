@@ -20,7 +20,10 @@
 
 ## Runman Agent
 - Repository: https://github.com/narwhal-cloud/runman-agent
-- Protocol source should be read from the repository before implementing Gateway.
+- Protocol guide: https://github.com/narwhal-cloud/runman-agent/blob/main/PROTOCOL.en.md
+- Protobuf contract: https://github.com/narwhal-cloud/runman-agent/blob/main/proto/agent/agent.proto
+- Vendored protocol revision: `0da61a14e25260e7f447bc1eb864b05a22dc85a0`
+- Last verified: 2026-09-24
 
 ## Rule
 第三方项目发生 API/协议变化时，只修改对应 Adapter/Gateway；Business Core、Domain Model、Operation Contract 不随意变化。

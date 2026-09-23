@@ -17,6 +17,8 @@ x-backend-environment: &backend-environment
   SUBSCRIPTION_GRACE_PERIOD: "72h"
   COOKIE_SECURE: "false"
   LOG_LEVEL: info
+  RUNMAN_GATEWAY_ADDRESS: ":9090"
+  RUNMAN_INSECURE: "true"
 
 x-backend-build: &backend-build
   context: ..
@@ -83,6 +85,17 @@ services:
         condition: service_completed_successfully
       redis:
         condition: service_healthy
+
+  runman-gateway:
+    image: vps-billing-backend:local
+    build: *backend-build
+    entrypoint: ["/app/runman-gateway"]
+    environment: *backend-environment
+    ports:
+      - "${RUNMAN_PORT:-9090}:9090"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
 
   user-web:
     build:

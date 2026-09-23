@@ -1,6 +1,6 @@
 # 17 — Deployment
 
-V1：reverse-proxy、user-web、admin-web、server、worker、postgres、redis。
+V1：reverse-proxy、user-web、admin-web、server、worker、runman-gateway、postgres、redis。
 
 环境：development/staging/production。
 
@@ -31,3 +31,5 @@ Worker 需要访问 Redis Stream `operation-queue`（consumer group `operation-w
 开发/验收环境可在 providers 表配置 `provider_type=mock`；Worker 的 Dynamic Registry 会按 ID 延迟创建 Mock Adapter。生产禁止使用 Mock，必须在 Phase 7/10 提供已核对官方协议的 Adapter Factory。启用销售的 Plan 必须配置 active NodeGroup、兼容能力和 default_image_id，否则 Provision 保持失败/重试状态而不会假成功。
 
 Direct LXD 部署使用 `provider_type=lxdapi`。Provider `endpoint` 必须为受信任的 HTTPS LXD 地址，`credential_ref` 只允许大写字母、数字和下划线。若引用为 `LXD_PRIMARY`，Worker 环境必须提供 `LXD_PRIMARY_CLIENT_CERT_PEM`、`LXD_PRIMARY_CLIENT_KEY_PEM`、`LXD_PRIMARY_SERVER_CA_PEM`。Provider `config` 可包含 `project`、`image_server`、`operation_timeout_seconds`；证书和私钥禁止写入数据库或日志。Node `external_ref` 必须对应 LXD cluster member target。
+
+Runman Gateway 默认监听 `RUNMAN_GATEWAY_ADDRESS=:9090`。生产必须同时配置 `RUNMAN_TLS_CERT_FILE` 与 `RUNMAN_TLS_KEY_FILE`；`RUNMAN_INSECURE=true` 只允许非生产本地/CI 环境。先创建 `provider_type=runman` 的 Provider 与 Node；该 Node 的 `provider_node_id` 必须留空（自动回退平台 Node UUID）或显式设置为同一个平台 Node UUID。随后执行 `/app/issue-agent-token --node-id <uuid>`；token 只显示一次，数据库只保存摘要。Agent 使用 `authorization: Bearer <token>` 主动连接 Gateway。负载均衡必须保持长连接；命令与连接状态以 PostgreSQL 为恢复源，因此 Gateway/Worker 重启不会丢失已提交命令。

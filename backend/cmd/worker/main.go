@@ -16,7 +16,9 @@ import (
 	"vps-billing/backend/internal/provider"
 	"vps-billing/backend/internal/provider/lxdapi"
 	providermock "vps-billing/backend/internal/provider/mock"
+	runmanprovider "vps-billing/backend/internal/provider/runman"
 	"vps-billing/backend/internal/provision"
+	"vps-billing/backend/internal/runman"
 	"vps-billing/backend/internal/subscription"
 	workerapp "vps-billing/backend/internal/worker"
 )
@@ -53,6 +55,12 @@ func main() {
 	}
 	if err := providerRegistry.RegisterFactory("lxdapi", lxdapi.NewFromFactory); err != nil {
 		logger.Error("LXD provider registration failed", "error", err)
+		os.Exit(1)
+	}
+	runmanStore := runman.NewPostgresStore(postgresClient.Pool())
+	runmanBroker := runman.NewBroker(runmanStore, runman.NewConnectionSender(runmanStore), 30*time.Second)
+	if err := providerRegistry.RegisterFactory("runman", runmanprovider.NewFactory(runmanStore, runmanBroker)); err != nil {
+		logger.Error("Runman provider registration failed", "error", err)
 		os.Exit(1)
 	}
 	provisionRepository := provision.NewRepository(postgresClient.Pool())

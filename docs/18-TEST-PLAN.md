@@ -17,3 +17,5 @@ LXD Direct Provider Contract：使用协议级 HTTP fixture 验证 project/clust
 User Portal：验证中英文 key 集完全一致；前端 lint/typecheck/test/build；浏览器检查 desktop/mobile、loaded/error/empty、危险确认和语言切换。Compose 使用真实会话验证 Instance ownership 查询、network/traffic、notifications、Ticket 创建/回复，以及 Restart `202 → Operation → Worker → MockProvider → verify → succeeded`。数据库测试验证同一 Instance 只有一个 active action。
 
 Admin Web：验证独立 Admin Session 与逐路由 RBAC；所有资源组均经真实 HTTP 查询。Wallet adjustment 集成测试与 Compose Gate 验证双分录相等、projection 同步及 Audit 同事务；secret setting 在写入和列表响应中始终遮罩。前端执行双语 parity、lint、typecheck、test、build 与浏览器 desktop/mobile 检查。
+
+Runman Contract：使用真实生成的 gRPC client/server 与内存 transport 验证 Bearer auth、Heartbeat/VM 状态映射、message_id 去重、durable command 投递、CommandResult、断线后相同 command_id 重放；Adapter Contract 验证 Create/动作幂等、traffic/usage/IP 映射、NAT 与 offline 错误标准化。PostgreSQL 集成测试验证 token hash 鉴权、在线判定和 jsonb 规范化后的幂等比较。

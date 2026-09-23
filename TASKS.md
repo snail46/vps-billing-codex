@@ -81,12 +81,12 @@
 - [x] admins/roles/settings
 
 ## Phase 10 — Runman Provider
-- [ ] Gateway
-- [ ] auth/connection registry
-- [ ] heartbeat/command/result/state
-- [ ] traffic/NAT
-- [ ] reconnect
-- [ ] Contract tests
+- [x] Gateway
+- [x] auth/connection registry
+- [x] heartbeat/command/result/state
+- [x] traffic/NAT
+- [x] reconnect
+- [x] Contract tests
 
 ## Phase 11 — Reconciler / Resilience
 - [ ] desired vs observed

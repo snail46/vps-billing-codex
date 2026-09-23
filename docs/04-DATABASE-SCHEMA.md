@@ -28,3 +28,5 @@ Operation 以全局唯一 idempotency key 创建，并记录 user/admin actor、
 Migration 000008 为每个 Instance 的未终态 Start/Stop/Restart/Reinstall Operation 建立部分唯一索引，并约束 Ticket status/priority。终态 Operation 保留历史且不阻止后续动作。
 
 Migration 000009 增加 Admin Web 的细粒度 read/manage permissions 并映射到 V1 内置角色。管理员余额调整新增不可变 `admin_adjustment` Ledger Transaction，双分录、Wallet projection 与 Audit Event 在同一数据库事务提交；不得直接改余额。
+
+Migration 000010 增加 Runman Agent 边界：`agent_tokens` 只保存 token hash；`agent_connections` 保存当前连接与服务端观察的 heartbeat；`agent_commands` 保存幂等、可重放命令及结果；`agent_messages` 按 message_id 去重；VM observed state、镜像目录和 NAT 映射分别持久化。敏感 VM 密码只在待执行命令中短暂存在，命令进入成功或失败终态时从 payload 清除。

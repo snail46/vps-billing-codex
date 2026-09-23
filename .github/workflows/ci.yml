@@ -62,7 +62,7 @@ jobs:
             echo "::error title=Backend tests failed::$diagnostic"
           fi
           exit "$status"
-      - run: go build ./cmd/server ./cmd/worker ./cmd/migrate ./cmd/bootstrap-admin
+      - run: go build ./cmd/server ./cmd/worker ./cmd/migrate ./cmd/bootstrap-admin ./cmd/runman-gateway ./cmd/issue-agent-token
 
   frontend:
     runs-on: ubuntu-latest
