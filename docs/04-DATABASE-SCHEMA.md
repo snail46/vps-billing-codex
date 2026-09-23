@@ -26,3 +26,5 @@ Operation 以全局唯一 idempotency key 创建，并记录 user/admin actor、
 购买产生的 Subscription 使用 `(source_order_id, source_item_index)` 唯一关联来源 Order，但仍是独立聚合；每个 Subscription 至多一个 Instance。Plan 保存可由 Provider Adapter 解释的 `default_image_id` 与目标 NodeGroup。Provision 最终化在同一事务提交 Reservation、激活 Subscription、条件完成 Order、写 Notification 与 Outbox。
 
 Migration 000008 为每个 Instance 的未终态 Start/Stop/Restart/Reinstall Operation 建立部分唯一索引，并约束 Ticket status/priority。终态 Operation 保留历史且不阻止后续动作。
+
+Migration 000009 增加 Admin Web 的细粒度 read/manage permissions 并映射到 V1 内置角色。管理员余额调整新增不可变 `admin_adjustment` Ledger Transaction，双分录、Wallet projection 与 Audit Event 在同一数据库事务提交；不得直接改余额。

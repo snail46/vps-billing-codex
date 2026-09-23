@@ -74,11 +74,11 @@
 - [x] bilingual
 
 ## Phase 9 — Admin Web
-- [ ] health dashboard
-- [ ] users/products/orders/payments/ledger
-- [ ] subscriptions/instances/nodes/providers
-- [ ] operations/tickets/audit
-- [ ] admins/roles/settings
+- [x] health dashboard
+- [x] users/products/orders/payments/ledger
+- [x] subscriptions/instances/nodes/providers
+- [x] operations/tickets/audit
+- [x] admins/roles/settings
 
 ## Phase 10 — Runman Provider
 - [ ] Gateway

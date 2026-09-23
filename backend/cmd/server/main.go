@@ -8,9 +8,11 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"vps-billing/backend/internal/admin"
 	"vps-billing/backend/internal/audit"
 	"vps-billing/backend/internal/commerce"
 	"vps-billing/backend/internal/config"
+	adminhttp "vps-billing/backend/internal/http/admin"
 	commercehttp "vps-billing/backend/internal/http/commerce"
 	"vps-billing/backend/internal/http/health"
 	identityhttp "vps-billing/backend/internal/http/identity"
@@ -75,6 +77,7 @@ func run(logger *slog.Logger) error {
 	operationhttp.New(operationService, identityHandler, redisClient.Raw()).Register(router)
 	portalService := portal.NewService(portal.NewPostgresRepository(postgresClient.Pool()))
 	portalhttp.New(portalService, operationService, identityHandler).Register(router)
+	adminhttp.New(admin.NewService(admin.NewPostgresRepository(postgresClient.Pool())), identityHandler).Register(router)
 	handler := middleware.Correlation(logger, middleware.AccessLog(logger, middleware.CORS([]string{settings.UserWebOrigin, settings.AdminWebOrigin}, router)))
 
 	server, err := serverapp.New(settings.ServerAddress, handler, logger)

@@ -215,6 +215,26 @@ jobs:
             http://localhost:8080/api/v1/admin/auth/login)
           stage="verify admin permissions"
           echo "$admin_response" | jq -e '.data.principal.permissions | index("admins.manage")'
+          admin_csrf=$(echo "$admin_response" | jq -er '.data.csrf_token')
+          stage="verify admin control plane reads"
+          curl --fail-with-body --show-error --cookie /tmp/admin.cookies http://localhost:8080/api/v1/admin/dashboard | jq -e '.data.metrics.users >= 1'
+          for resource in users products orders payments ledger subscriptions instances nodes providers operations tickets audit admins roles settings; do
+            curl --fail-with-body --show-error --cookie /tmp/admin.cookies "http://localhost:8080/api/v1/admin/$resource" | jq -e '.data.items | type == "array"'
+          done
+          curl --fail-with-body --show-error --cookie /tmp/admin.cookies "http://localhost:8080/api/v1/admin/instances/$instance_id" | jq -e --arg id "$instance_id" '.data.id == $id'
+          curl --fail-with-body --show-error --cookie /tmp/admin.cookies "http://localhost:8080/api/v1/admin/operations/$operation_id" | jq -e '.data.steps | length == 11'
+          stage="verify audited balanced admin wallet adjustment"
+          adjustment=$(curl --fail-with-body --show-error --cookie /tmp/admin.cookies -H 'Content-Type: application/json' -H "X-CSRF-Token: $admin_csrf" -d "{\"user_id\":\"$user_id\",\"currency\":\"USD\",\"amount_minor\":500,\"description\":\"CI service credit\"}" http://localhost:8080/api/v1/admin/ledger/adjustments)
+          adjustment_id=$(echo "$adjustment" | jq -er '.data.transaction_id')
+          adjustment_entries=$(docker compose -f deploy/docker-compose.yml exec -T postgres psql -U vps_billing -d vps_billing -tAc "SELECT count(*) FROM ledger_entries WHERE transaction_id='$adjustment_id'")
+          adjustment_balance=$(docker compose -f deploy/docker-compose.yml exec -T postgres psql -U vps_billing -d vps_billing -tAc "SELECT COALESCE(sum(CASE direction WHEN 'debit' THEN amount_minor ELSE -amount_minor END),0) FROM ledger_entries WHERE transaction_id='$adjustment_id'")
+          adjustment_audit=$(docker compose -f deploy/docker-compose.yml exec -T postgres psql -U vps_billing -d vps_billing -tAc "SELECT count(*) FROM audit_events WHERE action='ledger.adjusted' AND resource_id=(SELECT account_id FROM ledger_entries WHERE transaction_id='$adjustment_id' AND account_type='wallet')")
+          test "$adjustment_entries" = "2"
+          test "$adjustment_balance" = "0"
+          test "$adjustment_audit" = "1"
+          stage="verify secret setting masking and audit"
+          curl --fail-with-body --show-error --cookie /tmp/admin.cookies -H 'Content-Type: application/json' -H "X-CSRF-Token: $admin_csrf" -X PUT -d '{"value":"private-ci-value","is_secret":true}' http://localhost:8080/api/v1/admin/settings/ci.secret | jq -e '.data.value == "***"'
+          curl --fail-with-body --show-error --cookie /tmp/admin.cookies http://localhost:8080/api/v1/admin/settings | jq -e '.data.items[] | select(.key == "ci.secret") | .value == "***"'
       - name: Show service logs
         if: failure()
         run: docker compose -f deploy/docker-compose.yml logs

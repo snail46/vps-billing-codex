@@ -443,6 +443,61 @@ paths:
           content:
             text/event-stream:
               schema: {type: string}
+  /admin/dashboard:
+    get:
+      summary: Get anomaly-first administrator dashboard
+      security: [{adminSession: []}]
+      responses: {"200": {description: Health, alerts, capacity, providers, and nodes}, "403": {description: Permission denied}}
+  /admin/users:
+    get: {summary: List users, security: [{adminSession: []}], responses: {"200": {description: Users}, "403": {description: Permission denied}}}
+  /admin/users/{id}/status:
+    patch: {summary: Suspend or activate a user with audit, security: [{adminSession: []}], parameters: [{$ref: "#/components/parameters/ResourceID"}], responses: {"200": {description: Updated user}, "403": {description: Permission denied}}}
+  /admin/products:
+    get: {summary: List products and plans, security: [{adminSession: []}], responses: {"200": {description: Products}}}
+  /admin/orders:
+    get: {summary: List orders, security: [{adminSession: []}], responses: {"200": {description: Orders}}}
+  /admin/payments:
+    get: {summary: List payments, security: [{adminSession: []}], responses: {"200": {description: Payments}}}
+  /admin/ledger:
+    get: {summary: List immutable ledger transactions, security: [{adminSession: []}], responses: {"200": {description: Ledger transactions}}}
+  /admin/ledger/adjustments:
+    post: {summary: Create an audited balanced wallet adjustment, security: [{adminSession: []}], responses: {"201": {description: Wallet projection and transaction ID}, "409": {description: Insufficient balance}}}
+  /admin/subscriptions:
+    get: {summary: List subscriptions, security: [{adminSession: []}], responses: {"200": {description: Subscriptions}}}
+  /admin/instances:
+    get: {summary: List instances, security: [{adminSession: []}], responses: {"200": {description: Instances}}}
+  /admin/instances/{id}:
+    get: {summary: Get instance operations and diagnostics subject to RBAC, security: [{adminSession: []}], parameters: [{$ref: "#/components/parameters/ResourceID"}], responses: {"200": {description: Instance detail}, "404": {description: Not found}}}
+  /admin/nodes:
+    get: {summary: List nodes and capacity, security: [{adminSession: []}], responses: {"200": {description: Nodes}}}
+  /admin/providers:
+    get: {summary: List providers without credentials, security: [{adminSession: []}], responses: {"200": {description: Providers}}}
+  /admin/operations:
+    get: {summary: List operations, security: [{adminSession: []}], responses: {"200": {description: Operations}}}
+  /admin/operations/{id}:
+    get: {summary: Get workflow steps and RBAC-filtered raw diagnostics, security: [{adminSession: []}], parameters: [{$ref: "#/components/parameters/ResourceID"}], responses: {"200": {description: Operation detail}, "404": {description: Not found}}}
+  /admin/tickets:
+    get: {summary: List support tickets, security: [{adminSession: []}], responses: {"200": {description: Tickets}}}
+  /admin/tickets/{id}/messages:
+    post: {summary: Add an audited administrator reply, security: [{adminSession: []}], parameters: [{$ref: "#/components/parameters/ResourceID"}], responses: {"201": {description: Ticket message}, "409": {description: Ticket finalized}}}
+  /admin/tickets/{id}/status:
+    patch: {summary: Change ticket state with audit, security: [{adminSession: []}], parameters: [{$ref: "#/components/parameters/ResourceID"}], responses: {"200": {description: Updated ticket}}}
+  /admin/audit:
+    get: {summary: List audit events, security: [{adminSession: []}], responses: {"200": {description: Audit events}}}
+  /admin/admins:
+    get: {summary: List administrators and roles, security: [{adminSession: []}], responses: {"200": {description: Administrators}}}
+  /admin/admins/{id}/roles:
+    put: {summary: Replace administrator roles with audit, security: [{adminSession: []}], parameters: [{$ref: "#/components/parameters/ResourceID"}], responses: {"200": {description: Updated administrator roles}}}
+  /admin/roles:
+    get: {summary: List roles and permissions, security: [{adminSession: []}], responses: {"200": {description: Roles}}}
+  /admin/settings:
+    get: {summary: List settings with secret values masked, security: [{adminSession: []}], responses: {"200": {description: Settings}}}
+  /admin/settings/{key}:
+    put:
+      summary: Upsert an audited setting
+      security: [{adminSession: []}]
+      parameters: [{name: key, in: path, required: true, schema: {type: string}}]
+      responses: {"200": {description: Masked setting}}
 components:
   securitySchemes:
     userSession: {type: apiKey, in: cookie, name: vps_user_session}
@@ -452,6 +507,11 @@ components:
       description: Secure, HttpOnly, SameSite=Strict session cookie (Secure is disabled only in local development).
       schema: {type: string}
   parameters:
+    ResourceID:
+      name: id
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
     Id:
       name: id
       in: path

@@ -17,3 +17,5 @@ roles.manage
 settings.manage
 
 每个 Admin Handler 显式声明权限。
+
+Admin Web 额外声明：health.read、products.read/manage、orders.read、subscriptions.read、admins.read、roles.read、settings.read。Migration 000009 将 read 权限授予对应职责角色；super_admin 拥有全部权限。原始 Provider/Operation 诊断只对 manage/retry 权限开放。

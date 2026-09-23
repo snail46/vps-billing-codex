@@ -113,8 +113,8 @@ table { border-collapse: collapse; width: 100%; }
 th, td { border-bottom: 1px solid #edf0f5; padding: 12px 14px; text-align: left; }
 th { color: #526078; font-size: 13px; text-transform: uppercase; }
 .status-badge { background: #eef1f5; border-radius: 999px; display: inline-block; font-size: 13px; font-weight: 700; padding: 4px 9px; }
-.status-badge[data-status="running"], .status-badge[data-status="active"], .status-badge[data-status="fulfilled"], .status-badge[data-status="paid"] { background: #dcfae6; color: #067647; }
-.status-badge[data-status="error"] { background: #fee4e2; color: #b42318; }
+.status-badge[data-status="running"], .status-badge[data-status="online"], .status-badge[data-status="active"], .status-badge[data-status="fulfilled"], .status-badge[data-status="paid"] { background: #dcfae6; color: #067647; }
+.status-badge[data-status="error"], .status-badge[data-status="failed"], .status-badge[data-status="offline"] { background: #fee4e2; color: #b42318; }
 .status-badge[data-status="pending"], .status-badge[data-status="provisioning"], .status-badge[data-status="restarting"], .status-badge[data-status="reinstalling"] { background: #fef0c7; color: #854a0e; }
 .state-panel { align-items: center; background: #fff; border: 1px dashed #b8c2d4; border-radius: 12px; color: #526078; display: flex; gap: 12px; justify-content: center; min-height: 120px; padding: 24px; }
 .state-panel--error { border-color: #fda29b; color: #b42318; }
@@ -132,12 +132,30 @@ th { color: #526078; font-size: 13px; text-transform: uppercase; }
 .message-list article p { white-space: pre-wrap; }
 .message-list time { color: #667085; font-size: 13px; }
 
+.admin-layout { display: grid; gap: 20px; grid-template-columns: 190px minmax(0, 1fr); }
+.admin-nav { align-content: start; background: #101828; border-radius: 12px; display: grid; gap: 2px; padding: 10px; position: sticky; top: 16px; }
+.admin-nav button { background: transparent; border: 0; border-radius: 7px; color: #d0d5dd; cursor: pointer; font-size: 13px; padding: 9px 10px; text-align: left; }
+.admin-nav button:hover, .admin-nav button[data-active="true"] { background: #344054; color: #fff; }
+.admin-content { min-width: 0; }
+.admin-section { margin-top: 28px; }
+.admin-section h2 { font-size: 18px; }
+.admin-metrics { grid-template-columns: repeat(6,minmax(120px,1fr)); margin: 20px 0 32px; }
+.admin-metrics .metric { padding: 14px; }
+.admin-metrics .metric strong { font-size: 22px; }
+.admin-detail { max-width: 920px; }
+.diagnostic { background: #101828; border-radius: 8px; color: #d1fadf; font-size: 12px; max-height: 60vh; overflow: auto; padding: 16px; white-space: pre-wrap; }
+.check-line { display: block; margin: 8px 0; }
+
 @media (max-width: 800px) {
   .app-header { padding: 0 14px; }
   .app-main { padding: 20px 14px 48px; }
   .portal-layout { grid-template-columns: 1fr; }
   .portal-nav { display: flex; overflow-x: auto; position: static; }
   .portal-nav button { flex: 0 0 auto; }
+  .admin-layout { grid-template-columns: 1fr; }
+  .admin-nav { display: flex; overflow-x: auto; position: static; }
+  .admin-nav button { flex: 0 0 auto; }
+  .admin-metrics { grid-template-columns: repeat(2,minmax(0,1fr)); }
   .metric-grid, .plan-grid, .detail-grid { grid-template-columns: 1fr; }
   .card { padding: 20px; }
 }

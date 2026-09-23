@@ -15,3 +15,5 @@ Provision Integration：paid purchase event→pending Subscription/Instance/Oper
 LXD Direct Provider Contract：使用协议级 HTTP fixture 验证 project/cluster target、异步 Operation wait、确定性 Create replay、动作/重装/删除 replay、同键跨实例冲突、状态/IP/流量映射、超时与 HTTP 错误标准化，以及 ResetPassword/NAT 的 `UNSUPPORTED_OPERATION`。测试构造器可使用本地 HTTP；数据库 Factory 永远要求 HTTPS+mTLS。
 
 User Portal：验证中英文 key 集完全一致；前端 lint/typecheck/test/build；浏览器检查 desktop/mobile、loaded/error/empty、危险确认和语言切换。Compose 使用真实会话验证 Instance ownership 查询、network/traffic、notifications、Ticket 创建/回复，以及 Restart `202 → Operation → Worker → MockProvider → verify → succeeded`。数据库测试验证同一 Instance 只有一个 active action。
+
+Admin Web：验证独立 Admin Session 与逐路由 RBAC；所有资源组均经真实 HTTP 查询。Wallet adjustment 集成测试与 Compose Gate 验证双分录相等、projection 同步及 Audit 同事务；secret setting 在写入和列表响应中始终遮罩。前端执行双语 parity、lint、typecheck、test、build 与浏览器 desktop/mobile 检查。
