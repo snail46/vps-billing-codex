@@ -30,9 +30,9 @@
 **Gate:** 同一支付回调重复 100 次只入账一次。
 
 ## Phase 3 — Subscription
-- [ ] lifecycle
-- [ ] renewal
-- [ ] due/grace/suspend/cancel
+- [x] lifecycle
+- [x] renewal
+- [x] due/grace/suspend/cancel
 
 ## Phase 4 — Infrastructure Domain
 - [ ] provider/node group/node

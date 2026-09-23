@@ -69,19 +69,20 @@ func (q *Queries) CountLedgerTransactionsByReference(ctx context.Context, arg Co
 }
 
 const createInvoice = `-- name: CreateInvoice :one
-INSERT INTO invoices (id, invoice_no, user_id, order_id, status, amount_minor, currency, due_at)
-VALUES ($1, $2, $3, $4, 'open', $5, $6, $7)
+INSERT INTO invoices (id, invoice_no, user_id, subscription_id, order_id, status, amount_minor, currency, due_at)
+VALUES ($1, $2, $3, $4, $5, 'open', $6, $7, $8)
 RETURNING id, invoice_no, user_id, subscription_id, order_id, status, amount_minor, currency, due_at, paid_at, created_at, updated_at
 `
 
 type CreateInvoiceParams struct {
-	ID          uuid.UUID          `json:"id"`
-	InvoiceNo   string             `json:"invoice_no"`
-	UserID      uuid.UUID          `json:"user_id"`
-	OrderID     *uuid.UUID         `json:"order_id"`
-	AmountMinor int64              `json:"amount_minor"`
-	Currency    string             `json:"currency"`
-	DueAt       pgtype.Timestamptz `json:"due_at"`
+	ID             uuid.UUID          `json:"id"`
+	InvoiceNo      string             `json:"invoice_no"`
+	UserID         uuid.UUID          `json:"user_id"`
+	SubscriptionID *uuid.UUID         `json:"subscription_id"`
+	OrderID        *uuid.UUID         `json:"order_id"`
+	AmountMinor    int64              `json:"amount_minor"`
+	Currency       string             `json:"currency"`
+	DueAt          pgtype.Timestamptz `json:"due_at"`
 }
 
 func (q *Queries) CreateInvoice(ctx context.Context, arg CreateInvoiceParams) (Invoice, error) {
@@ -89,6 +90,7 @@ func (q *Queries) CreateInvoice(ctx context.Context, arg CreateInvoiceParams) (I
 		arg.ID,
 		arg.InvoiceNo,
 		arg.UserID,
+		arg.SubscriptionID,
 		arg.OrderID,
 		arg.AmountMinor,
 		arg.Currency,
@@ -191,9 +193,9 @@ func (q *Queries) CreateLedgerTransaction(ctx context.Context, arg CreateLedgerT
 }
 
 const createOrder = `-- name: CreateOrder :one
-INSERT INTO orders (id, order_no, user_id, status, subtotal_minor, discount_minor, total_minor, currency, idempotency_key)
-VALUES ($1, $2, $3, 'pending', $4, 0, $4, $5, $6)
-RETURNING id, order_no, user_id, status, subtotal_minor, discount_minor, total_minor, currency, paid_at, created_at, updated_at, idempotency_key
+INSERT INTO orders (id, order_no, user_id, status, subtotal_minor, discount_minor, total_minor, currency, idempotency_key, kind, subscription_id)
+VALUES ($1, $2, $3, 'pending', $4, 0, $4, $5, $6, $7, $8)
+RETURNING id, order_no, user_id, status, subtotal_minor, discount_minor, total_minor, currency, paid_at, created_at, updated_at, idempotency_key, kind, subscription_id
 `
 
 type CreateOrderParams struct {
@@ -203,6 +205,8 @@ type CreateOrderParams struct {
 	SubtotalMinor  int64       `json:"subtotal_minor"`
 	Currency       string      `json:"currency"`
 	IdempotencyKey pgtype.Text `json:"idempotency_key"`
+	Kind           string      `json:"kind"`
+	SubscriptionID *uuid.UUID  `json:"subscription_id"`
 }
 
 func (q *Queries) CreateOrder(ctx context.Context, arg CreateOrderParams) (Order, error) {
@@ -213,6 +217,8 @@ func (q *Queries) CreateOrder(ctx context.Context, arg CreateOrderParams) (Order
 		arg.SubtotalMinor,
 		arg.Currency,
 		arg.IdempotencyKey,
+		arg.Kind,
+		arg.SubscriptionID,
 	)
 	var i Order
 	err := row.Scan(
@@ -228,6 +234,8 @@ func (q *Queries) CreateOrder(ctx context.Context, arg CreateOrderParams) (Order
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.IdempotencyKey,
+		&i.Kind,
+		&i.SubscriptionID,
 	)
 	return i, err
 }
@@ -360,7 +368,7 @@ func (q *Queries) EnsureWallet(ctx context.Context, arg EnsureWalletParams) (Wal
 }
 
 const getOrderByUserIdempotency = `-- name: GetOrderByUserIdempotency :one
-SELECT id, order_no, user_id, status, subtotal_minor, discount_minor, total_minor, currency, paid_at, created_at, updated_at, idempotency_key FROM orders WHERE user_id = $1 AND idempotency_key = $2
+SELECT id, order_no, user_id, status, subtotal_minor, discount_minor, total_minor, currency, paid_at, created_at, updated_at, idempotency_key, kind, subscription_id FROM orders WHERE user_id = $1 AND idempotency_key = $2
 `
 
 type GetOrderByUserIdempotencyParams struct {
@@ -384,6 +392,8 @@ func (q *Queries) GetOrderByUserIdempotency(ctx context.Context, arg GetOrderByU
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.IdempotencyKey,
+		&i.Kind,
+		&i.SubscriptionID,
 	)
 	return i, err
 }
@@ -666,7 +676,7 @@ func (q *Queries) ListInvoicesByUser(ctx context.Context, userID uuid.UUID) ([]I
 }
 
 const listOrdersByUser = `-- name: ListOrdersByUser :many
-SELECT orders.id, orders.order_no, orders.user_id, orders.status, orders.subtotal_minor, orders.discount_minor, orders.total_minor, orders.currency, orders.paid_at, orders.created_at, orders.updated_at, orders.idempotency_key, payments.id AS payment_id, payments.status AS payment_status, payments.gateway
+SELECT orders.id, orders.order_no, orders.user_id, orders.status, orders.subtotal_minor, orders.discount_minor, orders.total_minor, orders.currency, orders.paid_at, orders.created_at, orders.updated_at, orders.idempotency_key, orders.kind, orders.subscription_id, payments.id AS payment_id, payments.status AS payment_status, payments.gateway
 FROM orders LEFT JOIN payments ON payments.order_id = orders.id
 WHERE orders.user_id = $1 ORDER BY orders.created_at DESC
 `
@@ -684,6 +694,8 @@ type ListOrdersByUserRow struct {
 	CreatedAt      pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
 	IdempotencyKey pgtype.Text        `json:"idempotency_key"`
+	Kind           string             `json:"kind"`
+	SubscriptionID *uuid.UUID         `json:"subscription_id"`
 	PaymentID      *uuid.UUID         `json:"payment_id"`
 	PaymentStatus  pgtype.Text        `json:"payment_status"`
 	Gateway        pgtype.Text        `json:"gateway"`
@@ -711,6 +723,8 @@ func (q *Queries) ListOrdersByUser(ctx context.Context, userID uuid.UUID) ([]Lis
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.IdempotencyKey,
+			&i.Kind,
+			&i.SubscriptionID,
 			&i.PaymentID,
 			&i.PaymentStatus,
 			&i.Gateway,
@@ -727,8 +741,8 @@ func (q *Queries) ListOrdersByUser(ctx context.Context, userID uuid.UUID) ([]Lis
 
 const lockPaymentOrderInvoice = `-- name: LockPaymentOrderInvoice :one
 SELECT payments.id AS payment_id, payments.status AS payment_status, payments.amount_minor AS payment_amount_minor,
-       payments.currency AS payment_currency, payments.order_id, orders.user_id, orders.status AS order_status,
-       invoices.id AS invoice_id, invoices.status AS invoice_status
+       payments.currency AS payment_currency, payments.gateway_payment_id, payments.order_id, orders.user_id, orders.status AS order_status,
+       invoices.id AS invoice_id, invoices.status AS invoice_status, invoices.subscription_id
 FROM payments
 JOIN orders ON orders.id = payments.order_id
 JOIN invoices ON invoices.order_id = orders.id
@@ -742,15 +756,17 @@ type LockPaymentOrderInvoiceParams struct {
 }
 
 type LockPaymentOrderInvoiceRow struct {
-	PaymentID          uuid.UUID `json:"payment_id"`
-	PaymentStatus      string    `json:"payment_status"`
-	PaymentAmountMinor int64     `json:"payment_amount_minor"`
-	PaymentCurrency    string    `json:"payment_currency"`
-	OrderID            uuid.UUID `json:"order_id"`
-	UserID             uuid.UUID `json:"user_id"`
-	OrderStatus        string    `json:"order_status"`
-	InvoiceID          uuid.UUID `json:"invoice_id"`
-	InvoiceStatus      string    `json:"invoice_status"`
+	PaymentID          uuid.UUID   `json:"payment_id"`
+	PaymentStatus      string      `json:"payment_status"`
+	PaymentAmountMinor int64       `json:"payment_amount_minor"`
+	PaymentCurrency    string      `json:"payment_currency"`
+	GatewayPaymentID   pgtype.Text `json:"gateway_payment_id"`
+	OrderID            uuid.UUID   `json:"order_id"`
+	UserID             uuid.UUID   `json:"user_id"`
+	OrderStatus        string      `json:"order_status"`
+	InvoiceID          uuid.UUID   `json:"invoice_id"`
+	InvoiceStatus      string      `json:"invoice_status"`
+	SubscriptionID     *uuid.UUID  `json:"subscription_id"`
 }
 
 func (q *Queries) LockPaymentOrderInvoice(ctx context.Context, arg LockPaymentOrderInvoiceParams) (LockPaymentOrderInvoiceRow, error) {
@@ -761,11 +777,13 @@ func (q *Queries) LockPaymentOrderInvoice(ctx context.Context, arg LockPaymentOr
 		&i.PaymentStatus,
 		&i.PaymentAmountMinor,
 		&i.PaymentCurrency,
+		&i.GatewayPaymentID,
 		&i.OrderID,
 		&i.UserID,
 		&i.OrderStatus,
 		&i.InvoiceID,
 		&i.InvoiceStatus,
+		&i.SubscriptionID,
 	)
 	return i, err
 }

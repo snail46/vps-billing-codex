@@ -37,10 +37,13 @@ export const messages = {
     ,"errors.planNotFound": "套餐不存在或已下架"
     ,"errors.quantityInvalid": "购买数量无效"
     ,"errors.idempotencyInvalid": "幂等键无效"
+    ,"errors.idempotencyConflict": "此幂等键已用于其他请求"
     ,"errors.paymentNotFound": "支付记录不存在"
     ,"errors.paymentMismatch": "支付金额或币种不匹配"
     ,"errors.paymentStateInvalid": "当前支付状态不允许此操作"
     ,"errors.webhookSignatureInvalid": "支付回调签名无效"
+    ,"errors.subscriptionNotFound": "订阅不存在"
+    ,"errors.subscriptionStateInvalid": "当前订阅状态不允许此操作"
   },
   "en-US": {
     "common.language": "Language",
@@ -80,10 +83,13 @@ export const messages = {
     ,"errors.planNotFound": "The plan does not exist or is unavailable"
     ,"errors.quantityInvalid": "The purchase quantity is invalid"
     ,"errors.idempotencyInvalid": "The idempotency key is invalid"
+    ,"errors.idempotencyConflict": "The idempotency key was used for a different request"
     ,"errors.paymentNotFound": "The payment was not found"
     ,"errors.paymentMismatch": "The payment amount or currency does not match"
     ,"errors.paymentStateInvalid": "The payment state does not allow this action"
     ,"errors.webhookSignatureInvalid": "The payment webhook signature is invalid"
+    ,"errors.subscriptionNotFound": "The subscription was not found"
+    ,"errors.subscriptionStateInvalid": "The subscription state does not allow this action"
   }
 } as const;
 

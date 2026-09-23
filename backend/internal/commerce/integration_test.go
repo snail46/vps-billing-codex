@@ -3,6 +3,7 @@ package commerce
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"sync"
 	"testing"
@@ -68,6 +69,13 @@ func TestDuplicateWebhookOneHundredTimesCreditsExactlyOnce(t *testing.T) {
 	}
 	if t.Failed() {
 		return
+	}
+	conflictingEvent := event
+	conflictingEvent.EventID = "conflicting-event-" + order.ID.String()
+	conflictingEvent.ExternalPaymentID = "different-external-payment"
+	conflictingPayload, _ := json.Marshal(conflictingEvent)
+	if _, err := repository.CompletePayment(ctx, conflictingEvent, conflictingPayload); !errors.Is(err, ErrPaymentMismatch) {
+		t.Fatalf("conflicting completed payment callback error=%v, want ErrPaymentMismatch", err)
 	}
 
 	assertCount(t, pool, `SELECT count(*) FROM ledger_transactions WHERE type='payment_capture' AND reference_id=$1`, event.PaymentID, 1)

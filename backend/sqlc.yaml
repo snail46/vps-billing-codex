@@ -5,6 +5,7 @@ sql:
       - "internal/migrations/sql/000001_initial.up.sql"
       - "internal/migrations/sql/000002_identity.up.sql"
       - "internal/migrations/sql/000003_commerce.up.sql"
+      - "internal/migrations/sql/000004_subscription.up.sql"
     queries: "internal/store/queries"
     gen:
       go:

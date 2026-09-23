@@ -202,6 +202,64 @@ paths:
         "404": {description: Payment not found}
         "409": {description: Payment state conflict}
         "422": {$ref: "#/components/responses/ValidationFailure"}
+  /subscriptions:
+    get:
+      summary: List user subscriptions
+      operationId: listSubscriptions
+      responses:
+        "200":
+          description: Subscriptions
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data, request_id]
+                properties:
+                  success: {type: boolean, const: true}
+                  request_id: {type: string}
+                  data:
+                    type: object
+                    required: [items]
+                    properties:
+                      items: {type: array, items: {$ref: "#/components/schemas/Subscription"}}
+        "401": {$ref: "#/components/responses/Unauthenticated"}
+  /subscriptions/{id}/renewals:
+    post:
+      summary: Create a renewal order and pending payment
+      operationId: renewSubscription
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/CSRFToken"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "201": {description: "Renewal order, invoice, and pending payment created"}
+        "401": {$ref: "#/components/responses/Unauthenticated"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {description: Subscription not found}
+        "409": {$ref: "#/components/responses/Conflict"}
+        "422": {$ref: "#/components/responses/ValidationFailure"}
+  /subscriptions/{id}/cancel-at-period-end:
+    put:
+      summary: Schedule or remove end-of-period cancellation
+      operationId: setSubscriptionCancelAtPeriodEnd
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/CSRFToken"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [cancel]
+              additionalProperties: false
+              properties: {cancel: {type: boolean}}
+      responses:
+        "200": {description: Subscription cancellation preference updated}
+        "401": {$ref: "#/components/responses/Unauthenticated"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {description: Subscription not found}
+        "409": {$ref: "#/components/responses/Conflict"}
   /instances:
     get:
       summary: List user instances
@@ -389,6 +447,26 @@ components:
         status: {type: string, enum: [succeeded]}
         amount_minor: {type: integer, format: int64, minimum: 0}
         currency: {type: string, minLength: 3, maxLength: 3}
+    Subscription:
+      type: object
+      required: [id, plan_id, status, billing_cycle, price_minor, currency, cancel_at_period_end, version]
+      properties:
+        id: {type: string, format: uuid}
+        plan_id: {type: string, format: uuid}
+        plan_slug: {type: string}
+        plan_name_i18n: {type: object, additionalProperties: {type: string}}
+        status: {type: string, enum: [pending, active, past_due, suspended, cancelled, expired, terminated]}
+        billing_cycle: {type: string, enum: [monthly, quarterly, yearly]}
+        price_minor: {type: integer, format: int64}
+        currency: {type: string, minLength: 3, maxLength: 3}
+        started_at: {type: [string, "null"], format: date-time}
+        current_period_start: {type: [string, "null"], format: date-time}
+        current_period_end: {type: [string, "null"], format: date-time}
+        next_due_at: {type: [string, "null"], format: date-time}
+        grace_until: {type: [string, "null"], format: date-time}
+        cancel_at_period_end: {type: boolean}
+        ended_at: {type: [string, "null"], format: date-time}
+        version: {type: integer, format: int64}
     OperationAccepted:
       type: object
       required: [success, data, request_id]

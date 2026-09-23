@@ -15,8 +15,8 @@ FROM plans JOIN products ON products.id = plans.product_id
 WHERE plans.id = $1 AND plans.status = 'active' AND products.status = 'active';
 
 -- name: CreateOrder :one
-INSERT INTO orders (id, order_no, user_id, status, subtotal_minor, discount_minor, total_minor, currency, idempotency_key)
-VALUES ($1, $2, $3, 'pending', $4, 0, $4, $5, $6)
+INSERT INTO orders (id, order_no, user_id, status, subtotal_minor, discount_minor, total_minor, currency, idempotency_key, kind, subscription_id)
+VALUES ($1, $2, $3, 'pending', $4, 0, $4, $5, $6, $7, $8)
 RETURNING *;
 
 -- name: GetOrderByUserIdempotency :one
@@ -27,8 +27,8 @@ INSERT INTO order_items (id, order_id, product_id, plan_id, quantity, unit_price
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9);
 
 -- name: CreateInvoice :one
-INSERT INTO invoices (id, invoice_no, user_id, order_id, status, amount_minor, currency, due_at)
-VALUES ($1, $2, $3, $4, 'open', $5, $6, $7)
+INSERT INTO invoices (id, invoice_no, user_id, subscription_id, order_id, status, amount_minor, currency, due_at)
+VALUES ($1, $2, $3, $4, $5, 'open', $6, $7, $8)
 RETURNING *;
 
 -- name: CreateInvoiceItem :exec
@@ -70,8 +70,8 @@ SELECT * FROM payment_webhook_receipts WHERE gateway = $1 AND external_event_id 
 
 -- name: LockPaymentOrderInvoice :one
 SELECT payments.id AS payment_id, payments.status AS payment_status, payments.amount_minor AS payment_amount_minor,
-       payments.currency AS payment_currency, payments.order_id, orders.user_id, orders.status AS order_status,
-       invoices.id AS invoice_id, invoices.status AS invoice_status
+       payments.currency AS payment_currency, payments.gateway_payment_id, payments.order_id, orders.user_id, orders.status AS order_status,
+       invoices.id AS invoice_id, invoices.status AS invoice_status, invoices.subscription_id
 FROM payments
 JOIN orders ON orders.id = payments.order_id
 JOIN invoices ON invoices.order_id = orders.id

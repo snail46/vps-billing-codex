@@ -17,3 +17,5 @@ HTTP：
 Admin API：`/api/v1/admin/*`。
 
 价格永远服务端计算。
+
+Subscription：`GET /subscriptions`；`POST /subscriptions/{id}/renewals` 使用 Idempotency-Key 创建续费 Order/Invoice/Payment；`PUT /subscriptions/{id}/cancel-at-period-end` 安排或撤销周期末取消。所有 ownership 由服务端会话校验。

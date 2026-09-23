@@ -13,6 +13,7 @@ import (
 type Querier interface {
 	AssignAdminRole(ctx context.Context, arg AssignAdminRoleParams) error
 	ClaimOutboxEvents(ctx context.Context, limit int32) ([]OutboxEvent, error)
+	ClaimSubscriptionsForLifecycle(ctx context.Context, arg ClaimSubscriptionsForLifecycleParams) ([]Subscription, error)
 	CountLedgerTransactionsByReference(ctx context.Context, arg CountLedgerTransactionsByReferenceParams) (int64, error)
 	CreateAdmin(ctx context.Context, arg CreateAdminParams) (Admin, error)
 	CreateAdminSession(ctx context.Context, arg CreateAdminSessionParams) (AdminSession, error)
@@ -38,6 +39,7 @@ type Querier interface {
 	GetOrderByUserIdempotency(ctx context.Context, arg GetOrderByUserIdempotencyParams) (Order, error)
 	GetPaymentByOrder(ctx context.Context, orderID uuid.UUID) (Payment, error)
 	GetPlanForOrder(ctx context.Context, id uuid.UUID) (GetPlanForOrderRow, error)
+	GetSubscriptionForRenewal(ctx context.Context, arg GetSubscriptionForRenewalParams) (GetSubscriptionForRenewalRow, error)
 	GetUserByEmail(ctx context.Context, email string) (User, error)
 	GetUserByID(ctx context.Context, id uuid.UUID) (User, error)
 	GetWalletByUserCurrency(ctx context.Context, arg GetWalletByUserCurrencyParams) (Wallet, error)
@@ -47,18 +49,24 @@ type Querier interface {
 	ListAdminPermissions(ctx context.Context, adminID uuid.UUID) ([]string, error)
 	ListInvoicesByUser(ctx context.Context, userID uuid.UUID) ([]Invoice, error)
 	ListOrdersByUser(ctx context.Context, userID uuid.UUID) ([]ListOrdersByUserRow, error)
+	ListSubscriptionsByUser(ctx context.Context, userID uuid.UUID) ([]ListSubscriptionsByUserRow, error)
 	LockPaymentOrderInvoice(ctx context.Context, arg LockPaymentOrderInvoiceParams) (LockPaymentOrderInvoiceRow, error)
+	LockSubscriptionByID(ctx context.Context, id uuid.UUID) (Subscription, error)
+	LockSubscriptionByUser(ctx context.Context, arg LockSubscriptionByUserParams) (Subscription, error)
 	MarkInvoicePaid(ctx context.Context, id uuid.UUID) error
 	MarkOrderPaid(ctx context.Context, id uuid.UUID) error
 	MarkOutboxPublished(ctx context.Context, id uuid.UUID) error
 	MarkOutboxRetry(ctx context.Context, id uuid.UUID) error
 	MarkPaymentSucceeded(ctx context.Context, arg MarkPaymentSucceededParams) error
 	MarkWebhookProcessed(ctx context.Context, id uuid.UUID) error
+	RenewSubscriptionAfterPayment(ctx context.Context, arg RenewSubscriptionAfterPaymentParams) (Subscription, error)
 	RevokeAdminSession(ctx context.Context, tokenHash []byte) error
 	RevokeUserSession(ctx context.Context, tokenHash []byte) error
+	SetSubscriptionCancelAtPeriodEnd(ctx context.Context, arg SetSubscriptionCancelAtPeriodEndParams) (Subscription, error)
 	TouchAdminSession(ctx context.Context, id uuid.UUID) error
 	TouchUserSession(ctx context.Context, id uuid.UUID) error
 	UpdateAdminLastLogin(ctx context.Context, id uuid.UUID) error
+	UpdateSubscriptionLifecycle(ctx context.Context, arg UpdateSubscriptionLifecycleParams) (Subscription, error)
 	UpdateUserLastLogin(ctx context.Context, id uuid.UUID) error
 	UpsertAdminTOTPSecret(ctx context.Context, arg UpsertAdminTOTPSecretParams) error
 }

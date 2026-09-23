@@ -171,6 +171,8 @@ CREATE TABLE orders (
   discount_minor bigint NOT NULL DEFAULT 0,
   total_minor bigint NOT NULL,
   currency varchar(3) NOT NULL,
+  kind varchar(32) NOT NULL DEFAULT 'purchase' CHECK (kind IN ('purchase', 'renewal')),
+  subscription_id uuid,
   idempotency_key varchar(255),
   paid_at timestamptz,
   created_at timestamptz NOT NULL DEFAULT now(),
@@ -276,8 +278,8 @@ CREATE TABLE subscriptions (
   id uuid PRIMARY KEY,
   user_id uuid NOT NULL REFERENCES users(id),
   plan_id uuid NOT NULL REFERENCES plans(id),
-  status varchar(64) NOT NULL,
-  billing_cycle varchar(64) NOT NULL,
+  status varchar(64) NOT NULL CHECK (status IN ('pending', 'active', 'past_due', 'suspended', 'cancelled', 'expired', 'terminated')),
+  billing_cycle varchar(64) NOT NULL CHECK (billing_cycle IN ('monthly', 'quarterly', 'yearly')),
   price_minor bigint NOT NULL,
   currency varchar(3) NOT NULL,
   started_at timestamptz,
@@ -291,6 +293,16 @@ CREATE TABLE subscriptions (
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
+
+CREATE INDEX ix_subscriptions_lifecycle_due
+ON subscriptions(status, next_due_at, grace_until, current_period_end);
+
+ALTER TABLE orders
+  ADD CONSTRAINT fk_orders_subscription FOREIGN KEY (subscription_id) REFERENCES subscriptions(id),
+  ADD CONSTRAINT orders_kind_subscription_consistent CHECK (
+    (kind = 'purchase' AND subscription_id IS NULL) OR
+    (kind = 'renewal' AND subscription_id IS NOT NULL)
+  );
 
 CREATE TABLE invoices (
   id uuid PRIMARY KEY,

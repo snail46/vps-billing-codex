@@ -27,6 +27,15 @@ invoice:
   paid: {severity: success, zh_CN: "已支付", en_US: "Paid"}
   void: {severity: neutral, zh_CN: "已作废", en_US: "Void"}
 
+subscription:
+  pending: {severity: info, zh_CN: "等待开通", en_US: "Pending"}
+  active: {severity: success, zh_CN: "有效", en_US: "Active"}
+  past_due: {severity: warning, zh_CN: "已逾期", en_US: "Past due"}
+  suspended: {severity: warning, zh_CN: "已暂停", en_US: "Suspended"}
+  cancelled: {severity: neutral, zh_CN: "已取消", en_US: "Cancelled"}
+  expired: {severity: neutral, zh_CN: "已过期", en_US: "Expired"}
+  terminated: {severity: error, zh_CN: "已终止", en_US: "Terminated"}
+
 instance:
   running:
     severity: success

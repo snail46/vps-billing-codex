@@ -25,6 +25,7 @@ type Config struct {
 	FakePaymentWebhookSecret string
 	FakePaymentEnabled       bool
 	SessionTTL               time.Duration
+	SubscriptionGracePeriod  time.Duration
 	CookieSecure             bool
 }
 
@@ -43,7 +44,13 @@ func Load() (Config, error) {
 		AdminTOTPEncryptionKey:   os.Getenv("ADMIN_TOTP_ENCRYPTION_KEY"),
 		FakePaymentWebhookSecret: os.Getenv("FAKE_PAYMENT_WEBHOOK_SECRET"),
 		SessionTTL:               24 * time.Hour,
+		SubscriptionGracePeriod:  72 * time.Hour,
 	}
+	gracePeriod, err := time.ParseDuration(valueOrDefault("SUBSCRIPTION_GRACE_PERIOD", "72h"))
+	if err != nil || gracePeriod <= 0 {
+		return Config{}, fmt.Errorf("configuration: SUBSCRIPTION_GRACE_PERIOD must be a positive duration")
+	}
+	config.SubscriptionGracePeriod = gracePeriod
 	secure, err := strconv.ParseBool(valueOrDefault("COOKIE_SECURE", "false"))
 	if err != nil {
 		return Config{}, fmt.Errorf("configuration: COOKIE_SECURE: %w", err)

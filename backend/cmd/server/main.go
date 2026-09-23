@@ -15,6 +15,7 @@ import (
 	"vps-billing/backend/internal/http/health"
 	identityhttp "vps-billing/backend/internal/http/identity"
 	"vps-billing/backend/internal/http/middleware"
+	subscriptionhttp "vps-billing/backend/internal/http/subscription"
 	"vps-billing/backend/internal/identity"
 	"vps-billing/backend/internal/infrastructure/postgres"
 	"vps-billing/backend/internal/infrastructure/rediscache"
@@ -22,6 +23,7 @@ import (
 	platformruntime "vps-billing/backend/internal/platform/runtime"
 	"vps-billing/backend/internal/security/ratelimit"
 	serverapp "vps-billing/backend/internal/server"
+	"vps-billing/backend/internal/subscription"
 )
 
 const dependencyStartupTimeout = 10 * time.Second
@@ -63,6 +65,8 @@ func run(logger *slog.Logger) error {
 	identityHandler.Register(router)
 	commerceService := commerce.NewService(commerce.NewPostgresRepository(postgresClient.Pool()))
 	commercehttp.New(commerceService, identityHandler, fake.New(settings.FakePaymentWebhookSecret), settings.FakePaymentEnabled).Register(router)
+	subscriptionService := subscription.NewService(subscription.NewPostgresRepository(postgresClient.Pool()))
+	subscriptionhttp.New(subscriptionService, commerceService, identityHandler).Register(router)
 	handler := middleware.Correlation(logger, middleware.AccessLog(logger, middleware.CORS([]string{settings.UserWebOrigin, settings.AdminWebOrigin}, router)))
 
 	server, err := serverapp.New(settings.ServerAddress, handler, logger)

@@ -55,6 +55,9 @@ func (r *PostgresRepository) ListCatalog(ctx context.Context) ([]CatalogItem, er
 func (r *PostgresRepository) CreateOrder(ctx context.Context, userID, planID uuid.UUID, quantity int32, idempotencyKey string) (Order, error) {
 	key := pgtype.Text{String: idempotencyKey, Valid: true}
 	if existing, err := r.queries.GetOrderByUserIdempotency(ctx, db.GetOrderByUserIdempotencyParams{UserID: userID, IdempotencyKey: key}); err == nil {
+		if existing.Kind != "purchase" || existing.SubscriptionID != nil {
+			return Order{}, ErrIdempotencyConflict
+		}
 		return r.orderWithPayment(ctx, existing)
 	} else if !errors.Is(err, pgx.ErrNoRows) {
 		return Order{}, err
@@ -78,13 +81,16 @@ func (r *PostgresRepository) CreateOrder(ctx context.Context, userID, planID uui
 	}
 	total := plan.PriceMinor * int64(quantity)
 	orderID, invoiceID, paymentID := newID(), newID(), newID()
-	order, err := queries.CreateOrder(ctx, db.CreateOrderParams{ID: orderID, OrderNo: number("ORD", orderID), UserID: userID, SubtotalMinor: total, Currency: plan.Currency, IdempotencyKey: key})
+	order, err := queries.CreateOrder(ctx, db.CreateOrderParams{ID: orderID, OrderNo: number("ORD", orderID), UserID: userID, SubtotalMinor: total, Currency: plan.Currency, IdempotencyKey: key, Kind: "purchase"})
 	if err != nil {
 		if isUniqueViolation(err) {
 			_ = tx.Rollback(ctx)
 			existing, findErr := r.queries.GetOrderByUserIdempotency(ctx, db.GetOrderByUserIdempotencyParams{UserID: userID, IdempotencyKey: key})
 			if findErr != nil {
 				return Order{}, findErr
+			}
+			if existing.Kind != "purchase" || existing.SubscriptionID != nil {
+				return Order{}, ErrIdempotencyConflict
 			}
 			return r.orderWithPayment(ctx, existing)
 		}
@@ -115,7 +121,80 @@ func (r *PostgresRepository) CreateOrder(ctx context.Context, userID, planID uui
 	if err := tx.Commit(ctx); err != nil {
 		return Order{}, err
 	}
-	return Order{ID: order.ID, OrderNo: order.OrderNo, Status: order.Status, TotalMinor: order.TotalMinor, Currency: order.Currency, PaymentID: &payment.ID, PaymentStatus: payment.Status}, nil
+	return Order{ID: order.ID, OrderNo: order.OrderNo, Status: order.Status, TotalMinor: order.TotalMinor, Currency: order.Currency, Kind: order.Kind, PaymentID: &payment.ID, PaymentStatus: payment.Status}, nil
+}
+
+func (r *PostgresRepository) CreateRenewalOrder(ctx context.Context, userID, subscriptionID uuid.UUID, idempotencyKey string) (Order, error) {
+	key := pgtype.Text{String: idempotencyKey, Valid: true}
+	if existing, err := r.queries.GetOrderByUserIdempotency(ctx, db.GetOrderByUserIdempotencyParams{UserID: userID, IdempotencyKey: key}); err == nil {
+		if existing.Kind != "renewal" || existing.SubscriptionID == nil || *existing.SubscriptionID != subscriptionID {
+			return Order{}, ErrIdempotencyConflict
+		}
+		order, paymentErr := r.orderWithPayment(ctx, existing)
+		return order, paymentErr
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return Order{}, err
+	}
+
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return Order{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	queries := db.New(tx)
+	target, err := queries.GetSubscriptionForRenewal(ctx, db.GetSubscriptionForRenewalParams{ID: subscriptionID, UserID: userID})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Order{}, ErrSubscriptionNotFound
+	}
+	if err != nil {
+		return Order{}, err
+	}
+	if target.Status != "active" && target.Status != "past_due" && target.Status != "suspended" {
+		return Order{}, ErrSubscriptionState
+	}
+	orderID, invoiceID, paymentID := newID(), newID(), newID()
+	order, err := queries.CreateOrder(ctx, db.CreateOrderParams{ID: orderID, OrderNo: number("ORD", orderID), UserID: userID, SubtotalMinor: target.PriceMinor, Currency: target.Currency, IdempotencyKey: key, Kind: "renewal", SubscriptionID: &subscriptionID})
+	if err != nil {
+		if isUniqueViolation(err) {
+			_ = tx.Rollback(ctx)
+			existing, findErr := r.queries.GetOrderByUserIdempotency(ctx, db.GetOrderByUserIdempotencyParams{UserID: userID, IdempotencyKey: key})
+			if findErr != nil {
+				return Order{}, findErr
+			}
+			if existing.Kind != "renewal" || existing.SubscriptionID == nil || *existing.SubscriptionID != subscriptionID {
+				return Order{}, ErrIdempotencyConflict
+			}
+			result, paymentErr := r.orderWithPayment(ctx, existing)
+			return result, paymentErr
+		}
+		return Order{}, err
+	}
+	productSnapshot, err := json.Marshal(map[string]any{"id": target.ProductID, "slug": target.ProductSlug, "name_i18n": json.RawMessage(target.ProductNameI18n), "description_i18n": json.RawMessage(target.ProductDescriptionI18n)})
+	if err != nil {
+		return Order{}, err
+	}
+	planSnapshot, err := json.Marshal(map[string]any{"id": target.PlanID, "slug": target.PlanSlug, "name_i18n": json.RawMessage(target.PlanNameI18n), "billing_cycle": target.BillingCycle, "price_minor": target.PriceMinor, "currency": target.Currency})
+	if err != nil {
+		return Order{}, err
+	}
+	if err := queries.CreateOrderItem(ctx, db.CreateOrderItemParams{ID: newID(), OrderID: orderID, ProductID: target.ProductID, PlanID: target.PlanID, Quantity: 1, UnitPriceMinor: target.PriceMinor, TotalMinor: target.PriceMinor, ProductSnapshot: productSnapshot, PlanSnapshot: planSnapshot}); err != nil {
+		return Order{}, err
+	}
+	invoice, err := queries.CreateInvoice(ctx, db.CreateInvoiceParams{ID: invoiceID, InvoiceNo: number("INV", invoiceID), UserID: userID, SubscriptionID: &subscriptionID, OrderID: &orderID, AmountMinor: target.PriceMinor, Currency: target.Currency, DueAt: timestamp(time.Now().Add(30 * time.Minute))})
+	if err != nil {
+		return Order{}, err
+	}
+	if err := queries.CreateInvoiceItem(ctx, db.CreateInvoiceItemParams{ID: newID(), InvoiceID: invoice.ID, DescriptionI18n: target.PlanNameI18n, Quantity: 1, UnitAmountMinor: target.PriceMinor, TotalMinor: target.PriceMinor}); err != nil {
+		return Order{}, err
+	}
+	payment, err := queries.CreatePayment(ctx, db.CreatePaymentParams{ID: paymentID, PaymentNo: number("PAY", paymentID), OrderID: orderID, Gateway: fakeGateway, AmountMinor: target.PriceMinor, Currency: target.Currency, IdempotencyKey: "order:" + orderID.String() + ":fake"})
+	if err != nil {
+		return Order{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return Order{}, err
+	}
+	return Order{ID: order.ID, OrderNo: order.OrderNo, Status: order.Status, TotalMinor: order.TotalMinor, Currency: order.Currency, Kind: order.Kind, PaymentID: &payment.ID, PaymentStatus: payment.Status, SubscriptionID: &subscriptionID}, nil
 }
 
 func (r *PostgresRepository) orderWithPayment(ctx context.Context, order db.Order) (Order, error) {
@@ -123,7 +202,7 @@ func (r *PostgresRepository) orderWithPayment(ctx context.Context, order db.Orde
 	if err != nil {
 		return Order{}, err
 	}
-	return Order{ID: order.ID, OrderNo: order.OrderNo, Status: order.Status, TotalMinor: order.TotalMinor, Currency: order.Currency, PaymentID: &payment.ID, PaymentStatus: payment.Status}, nil
+	return Order{ID: order.ID, OrderNo: order.OrderNo, Status: order.Status, TotalMinor: order.TotalMinor, Currency: order.Currency, Kind: order.Kind, PaymentID: &payment.ID, PaymentStatus: payment.Status, SubscriptionID: order.SubscriptionID}, nil
 }
 
 func (r *PostgresRepository) ListOrders(ctx context.Context, userID uuid.UUID) ([]Order, error) {
@@ -133,7 +212,7 @@ func (r *PostgresRepository) ListOrders(ctx context.Context, userID uuid.UUID) (
 	}
 	result := make([]Order, 0, len(rows))
 	for _, row := range rows {
-		result = append(result, Order{ID: row.ID, OrderNo: row.OrderNo, Status: row.Status, TotalMinor: row.TotalMinor, Currency: row.Currency, PaymentID: row.PaymentID, PaymentStatus: row.PaymentStatus.String})
+		result = append(result, Order{ID: row.ID, OrderNo: row.OrderNo, Status: row.Status, TotalMinor: row.TotalMinor, Currency: row.Currency, Kind: row.Kind, PaymentID: row.PaymentID, PaymentStatus: row.PaymentStatus.String, SubscriptionID: row.SubscriptionID})
 	}
 	return result, nil
 }
@@ -145,7 +224,7 @@ func (r *PostgresRepository) ListInvoices(ctx context.Context, userID uuid.UUID)
 	}
 	result := make([]Invoice, 0, len(rows))
 	for _, row := range rows {
-		result = append(result, Invoice{ID: row.ID, InvoiceNo: row.InvoiceNo, Status: row.Status, AmountMinor: row.AmountMinor, Currency: row.Currency, DueAt: row.DueAt.Time})
+		result = append(result, Invoice{ID: row.ID, InvoiceNo: row.InvoiceNo, Status: row.Status, AmountMinor: row.AmountMinor, Currency: row.Currency, DueAt: row.DueAt.Time, SubscriptionID: row.SubscriptionID, OrderID: row.OrderID})
 	}
 	return result, nil
 }
@@ -194,7 +273,13 @@ func (r *PostgresRepository) CompletePayment(ctx context.Context, event Webhook,
 	if err != nil {
 		return PaymentResult{}, err
 	}
+	if locked.PaymentAmountMinor != event.AmountMinor || locked.PaymentCurrency != strings.ToUpper(event.Currency) {
+		return PaymentResult{}, ErrPaymentMismatch
+	}
 	if locked.PaymentStatus == "succeeded" {
+		if !locked.GatewayPaymentID.Valid || locked.GatewayPaymentID.String != event.ExternalPaymentID {
+			return PaymentResult{}, ErrPaymentMismatch
+		}
 		if err := queries.MarkWebhookProcessed(ctx, receiptID); err != nil {
 			return PaymentResult{}, err
 		}
@@ -206,9 +291,6 @@ func (r *PostgresRepository) CompletePayment(ctx context.Context, event Webhook,
 	if locked.PaymentStatus != "pending" && locked.PaymentStatus != "processing" {
 		return PaymentResult{}, ErrPaymentState
 	}
-	if locked.PaymentAmountMinor != event.AmountMinor || locked.PaymentCurrency != strings.ToUpper(event.Currency) {
-		return PaymentResult{}, ErrPaymentMismatch
-	}
 	if err := queries.MarkPaymentSucceeded(ctx, db.MarkPaymentSucceededParams{ID: locked.PaymentID, GatewayPaymentID: text(event.ExternalPaymentID), GatewayPayload: payload}); err != nil {
 		return PaymentResult{}, err
 	}
@@ -217,6 +299,24 @@ func (r *PostgresRepository) CompletePayment(ctx context.Context, event Webhook,
 	}
 	if err := queries.MarkInvoicePaid(ctx, locked.InvoiceID); err != nil {
 		return PaymentResult{}, err
+	}
+	var renewedSubscription *db.Subscription
+	if locked.SubscriptionID != nil {
+		subscription, lockErr := queries.LockSubscriptionByID(ctx, *locked.SubscriptionID)
+		if errors.Is(lockErr, pgx.ErrNoRows) {
+			return PaymentResult{}, ErrSubscriptionNotFound
+		}
+		if lockErr != nil {
+			return PaymentResult{}, lockErr
+		}
+		if subscription.Status != "active" && subscription.Status != "past_due" && subscription.Status != "suspended" {
+			return PaymentResult{}, ErrSubscriptionState
+		}
+		renewed, renewErr := queries.RenewSubscriptionAfterPayment(ctx, db.RenewSubscriptionAfterPaymentParams{ID: subscription.ID, StartedAt: timestamp(time.Now())})
+		if renewErr != nil {
+			return PaymentResult{}, renewErr
+		}
+		renewedSubscription = &renewed
 	}
 	transactionID := newID()
 	if err := queries.CreateLedgerTransaction(ctx, db.CreateLedgerTransactionParams{ID: transactionID, Type: "payment_capture", ReferenceType: text("payment"), ReferenceID: &locked.PaymentID, Description: text("External payment captured")}); err != nil {
@@ -241,6 +341,16 @@ func (r *PostgresRepository) CompletePayment(ctx context.Context, event Webhook,
 	}
 	if err := queries.CreateOutboxEvent(ctx, db.CreateOutboxEventParams{ID: outboxID, EventType: "payment.succeeded.v1", AggregateType: "payment", AggregateID: locked.PaymentID, Payload: envelope}); err != nil {
 		return PaymentResult{}, err
+	}
+	if renewedSubscription != nil {
+		renewalEventID := newID()
+		renewalEnvelope, marshalErr := json.Marshal(map[string]any{"event_id": renewalEventID, "event_type": "subscription.renewed.v1", "occurred_at": time.Now().UTC(), "aggregate_type": "subscription", "aggregate_id": renewedSubscription.ID, "data": map[string]any{"subscription_id": renewedSubscription.ID, "user_id": renewedSubscription.UserID, "payment_id": locked.PaymentID, "current_period_end": renewedSubscription.CurrentPeriodEnd.Time, "status": renewedSubscription.Status, "version": renewedSubscription.Version}})
+		if marshalErr != nil {
+			return PaymentResult{}, marshalErr
+		}
+		if err := queries.CreateOutboxEvent(ctx, db.CreateOutboxEventParams{ID: renewalEventID, EventType: "subscription.renewed.v1", AggregateType: "subscription", AggregateID: renewedSubscription.ID, Payload: renewalEnvelope}); err != nil {
+			return PaymentResult{}, err
+		}
 	}
 	if err := queries.MarkWebhookProcessed(ctx, receiptID); err != nil {
 		return PaymentResult{}, err

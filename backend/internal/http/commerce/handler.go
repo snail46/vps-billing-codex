@@ -141,12 +141,18 @@ func (h *Handler) commerceError(w http.ResponseWriter, r *http.Request, err erro
 		response.Error(w, r, http.StatusUnprocessableEntity, "QUANTITY_INVALID", "errors.quantityInvalid")
 	case errors.Is(err, commerce.ErrInvalidIdempotency):
 		response.Error(w, r, http.StatusUnprocessableEntity, "IDEMPOTENCY_KEY_INVALID", "errors.idempotencyInvalid")
+	case errors.Is(err, commerce.ErrIdempotencyConflict):
+		response.Error(w, r, http.StatusConflict, "IDEMPOTENCY_KEY_CONFLICT", "errors.idempotencyConflict")
 	case errors.Is(err, commerce.ErrPaymentNotFound):
 		response.Error(w, r, http.StatusNotFound, "PAYMENT_NOT_FOUND", "errors.paymentNotFound")
 	case errors.Is(err, commerce.ErrPaymentMismatch):
 		response.Error(w, r, http.StatusUnprocessableEntity, "PAYMENT_MISMATCH", "errors.paymentMismatch")
 	case errors.Is(err, commerce.ErrPaymentState):
 		response.Error(w, r, http.StatusConflict, "PAYMENT_STATE_INVALID", "errors.paymentStateInvalid")
+	case errors.Is(err, commerce.ErrSubscriptionNotFound):
+		response.Error(w, r, http.StatusNotFound, "SUBSCRIPTION_NOT_FOUND", "errors.subscriptionNotFound")
+	case errors.Is(err, commerce.ErrSubscriptionState):
+		response.Error(w, r, http.StatusConflict, "SUBSCRIPTION_STATE_INVALID", "errors.subscriptionStateInvalid")
 	default:
 		response.Error(w, r, http.StatusInternalServerError, "INTERNAL_ERROR", "errors.internal")
 	}

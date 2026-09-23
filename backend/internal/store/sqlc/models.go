@@ -242,6 +242,8 @@ type Order struct {
 	CreatedAt      pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
 	IdempotencyKey pgtype.Text        `json:"idempotency_key"`
+	Kind           string             `json:"kind"`
+	SubscriptionID *uuid.UUID         `json:"subscription_id"`
 }
 
 type OrderItem struct {

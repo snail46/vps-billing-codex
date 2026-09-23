@@ -14,6 +14,7 @@ x-backend-environment: &backend-environment
   ADMIN_TOTP_ENCRYPTION_KEY: "development-admin-totp-key-change-before-production"
   FAKE_PAYMENT_WEBHOOK_SECRET: "development-fake-payment-secret-change-before-production"
   FAKE_PAYMENT_ENABLED: "true"
+  SUBSCRIPTION_GRACE_PERIOD: "72h"
   COOKIE_SECURE: "false"
   LOG_LEVEL: info
 

@@ -10,12 +10,15 @@ import (
 )
 
 var (
-	ErrPlanNotFound       = errors.New("plan not found")
-	ErrInvalidQuantity    = errors.New("quantity is invalid")
-	ErrInvalidIdempotency = errors.New("idempotency key is invalid")
-	ErrPaymentNotFound    = errors.New("payment not found")
-	ErrPaymentMismatch    = errors.New("payment amount or currency does not match")
-	ErrPaymentState       = errors.New("payment state does not allow completion")
+	ErrPlanNotFound         = errors.New("plan not found")
+	ErrInvalidQuantity      = errors.New("quantity is invalid")
+	ErrInvalidIdempotency   = errors.New("idempotency key is invalid")
+	ErrIdempotencyConflict  = errors.New("idempotency key was used for a different request")
+	ErrPaymentNotFound      = errors.New("payment not found")
+	ErrPaymentMismatch      = errors.New("payment amount or currency does not match")
+	ErrPaymentState         = errors.New("payment state does not allow completion")
+	ErrSubscriptionNotFound = errors.New("subscription not found")
+	ErrSubscriptionState    = errors.New("subscription state does not allow renewal")
 )
 
 type CatalogItem struct {
@@ -40,22 +43,26 @@ type CatalogItem struct {
 }
 
 type Order struct {
-	ID            uuid.UUID  `json:"id"`
-	OrderNo       string     `json:"order_no"`
-	Status        string     `json:"status"`
-	TotalMinor    int64      `json:"total_minor"`
-	Currency      string     `json:"currency"`
-	PaymentID     *uuid.UUID `json:"payment_id,omitempty"`
-	PaymentStatus string     `json:"payment_status,omitempty"`
+	ID             uuid.UUID  `json:"id"`
+	OrderNo        string     `json:"order_no"`
+	Status         string     `json:"status"`
+	TotalMinor     int64      `json:"total_minor"`
+	Currency       string     `json:"currency"`
+	Kind           string     `json:"kind"`
+	PaymentID      *uuid.UUID `json:"payment_id,omitempty"`
+	PaymentStatus  string     `json:"payment_status,omitempty"`
+	SubscriptionID *uuid.UUID `json:"subscription_id,omitempty"`
 }
 
 type Invoice struct {
-	ID          uuid.UUID `json:"id"`
-	InvoiceNo   string    `json:"invoice_no"`
-	Status      string    `json:"status"`
-	AmountMinor int64     `json:"amount_minor"`
-	Currency    string    `json:"currency"`
-	DueAt       time.Time `json:"due_at"`
+	ID             uuid.UUID  `json:"id"`
+	InvoiceNo      string     `json:"invoice_no"`
+	Status         string     `json:"status"`
+	AmountMinor    int64      `json:"amount_minor"`
+	Currency       string     `json:"currency"`
+	DueAt          time.Time  `json:"due_at"`
+	SubscriptionID *uuid.UUID `json:"subscription_id,omitempty"`
+	OrderID        *uuid.UUID `json:"order_id,omitempty"`
 }
 type Wallet struct {
 	ID                    uuid.UUID `json:"id"`
@@ -81,10 +88,18 @@ type PaymentResult struct {
 type Repository interface {
 	ListCatalog(context.Context) ([]CatalogItem, error)
 	CreateOrder(context.Context, uuid.UUID, uuid.UUID, int32, string) (Order, error)
+	CreateRenewalOrder(context.Context, uuid.UUID, uuid.UUID, string) (Order, error)
 	ListOrders(context.Context, uuid.UUID) ([]Order, error)
 	ListInvoices(context.Context, uuid.UUID) ([]Invoice, error)
 	EnsureWallet(context.Context, uuid.UUID, string) (Wallet, error)
 	CompletePayment(context.Context, Webhook, json.RawMessage) (PaymentResult, error)
+}
+
+func (s *Service) CreateRenewalOrder(ctx context.Context, userID, subscriptionID uuid.UUID, key string) (Order, error) {
+	if len(key) < 8 || len(key) > 255 {
+		return Order{}, ErrInvalidIdempotency
+	}
+	return s.repository.CreateRenewalOrder(ctx, userID, subscriptionID, key)
 }
 
 type Service struct{ repository Repository }

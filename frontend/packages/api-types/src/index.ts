@@ -47,6 +47,34 @@ export interface AuthData<T> {
   csrf_token: string;
 }
 
+export type SubscriptionStatus =
+  | "pending"
+  | "active"
+  | "past_due"
+  | "suspended"
+  | "cancelled"
+  | "expired"
+  | "terminated";
+
+export interface Subscription {
+  id: string;
+  plan_id: string;
+  plan_slug: string;
+  plan_name_i18n: Record<string, string>;
+  status: SubscriptionStatus;
+  billing_cycle: "monthly" | "quarterly" | "yearly";
+  price_minor: number;
+  currency: string;
+  started_at: string | null;
+  current_period_start: string | null;
+  current_period_end: string | null;
+  next_due_at: string | null;
+  grace_until: string | null;
+  cancel_at_period_end: boolean;
+  ended_at: string | null;
+  version: number;
+}
+
 export class ApiRequestError extends Error {
   constructor(public readonly code: string, public readonly messageKey: string) {
     super(code);

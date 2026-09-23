@@ -10,3 +10,5 @@ Operation: queued/running/waiting_provider/waiting_resource/verifying/retrying/s
 
 Provider 不可达时实例为 unknown，不得猜 stopped/deleted。
 Create timeout 先 verifying，不得盲目重复创建。
+
+Subscription 时间迁移：active 在 period end 后进入 past_due 并使用 `period_end + grace_period`；past_due 在 grace deadline 后进入 suspended；设置 `cancel_at_period_end` 的 active 在 period end 进入 cancelled。成功续费可将 active/past_due/suspended 置回 active 并清除 grace/cancel 标记；终态拒绝续费。
