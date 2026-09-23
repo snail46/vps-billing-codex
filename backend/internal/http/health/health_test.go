@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/go-chi/chi/v5"
+
 	"vps-billing/backend/internal/http/middleware"
 )
 
@@ -52,7 +54,7 @@ func TestReadinessSucceedsWhenDependenciesAreUp(t *testing.T) {
 }
 
 func testHandler(postgres, redis Checker) http.Handler {
-	mux := http.NewServeMux()
+	mux := chi.NewRouter()
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	New(postgres, redis, logger).Register(mux)
 	return middleware.Correlation(logger, mux)

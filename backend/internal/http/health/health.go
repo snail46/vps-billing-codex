@@ -8,6 +8,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/go-chi/chi/v5"
+
 	"vps-billing/backend/internal/http/middleware"
 )
 
@@ -32,11 +34,11 @@ func New(postgres, redis Checker, logger *slog.Logger) *Handler {
 	}
 }
 
-func (h *Handler) Register(mux *http.ServeMux) {
-	mux.HandleFunc("GET /health/live", h.live)
-	mux.HandleFunc("GET /health/ready", h.ready)
-	mux.HandleFunc("GET /api/v1/health/live", h.live)
-	mux.HandleFunc("GET /api/v1/health/ready", h.ready)
+func (h *Handler) Register(router chi.Router) {
+	router.Get("/health/live", h.live)
+	router.Get("/health/ready", h.ready)
+	router.Get("/api/v1/health/live", h.live)
+	router.Get("/api/v1/health/ready", h.ready)
 }
 
 func (h *Handler) live(response http.ResponseWriter, request *http.Request) {

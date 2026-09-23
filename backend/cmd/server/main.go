@@ -3,9 +3,10 @@ package main
 import (
 	"context"
 	"log/slog"
-	"net/http"
 	"os"
 	"time"
+
+	"github.com/go-chi/chi/v5"
 
 	"vps-billing/backend/internal/config"
 	"vps-billing/backend/internal/http/health"
@@ -48,9 +49,9 @@ func run(logger *slog.Logger) error {
 		}
 	}()
 
-	mux := http.NewServeMux()
-	health.New(postgresClient, redisClient, logger).Register(mux)
-	handler := middleware.Correlation(logger, middleware.AccessLog(logger, mux))
+	router := chi.NewRouter()
+	health.New(postgresClient, redisClient, logger).Register(router)
+	handler := middleware.Correlation(logger, middleware.AccessLog(logger, router))
 
 	server, err := serverapp.New(settings.ServerAddress, handler, logger)
 	if err != nil {

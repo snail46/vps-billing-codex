@@ -1,17 +1,28 @@
-import {
-  createContext,
-  type PropsWithChildren,
-  useContext,
-  useMemo,
-  useState,
-} from "react";
+import i18next, { type i18n as I18nInstance } from "i18next";
+import type { PropsWithChildren } from "react";
+import { I18nextProvider, initReactI18next, useTranslation } from "react-i18next";
 
 import { messages, type Locale, type MessageKey } from "./messages";
 
 const defaultLocale: Locale = "zh-CN";
 
+export const i18n: I18nInstance = i18next.createInstance();
+export const i18nReady = i18n.use(initReactI18next).init({
+  fallbackLng: "en-US",
+  initAsync: false,
+  interpolation: { escapeValue: false },
+  lng: defaultLocale,
+  resources: {
+    "en-US": { translation: messages["en-US"] },
+    "zh-CN": { translation: messages["zh-CN"] },
+  },
+});
+void i18nReady.catch((error: unknown) => {
+  console.error("i18n initialization failed", error);
+});
+
 export function translate(locale: Locale, key: MessageKey): string {
-  return messages[locale][key] ?? messages["en-US"][key];
+  return i18n.getFixedT(locale)(key);
 }
 
 interface I18nValue {
@@ -20,24 +31,20 @@ interface I18nValue {
   t: (key: MessageKey) => string;
 }
 
-const I18nContext = createContext<I18nValue | null>(null);
-
 export function I18nProvider({ children }: PropsWithChildren) {
-  const [locale, setLocale] = useState<Locale>(defaultLocale);
-  const value = useMemo<I18nValue>(
-    () => ({ locale, setLocale, t: (key) => translate(locale, key) }),
-    [locale],
-  );
-
-  return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>;
+  return <I18nextProvider i18n={i18n}>{children}</I18nextProvider>;
 }
 
 export function useI18n(): I18nValue {
-  const value = useContext(I18nContext);
-  if (!value) {
-    throw new Error("useI18n must be used inside I18nProvider");
-  }
-  return value;
+  const { i18n: activeInstance, t } = useTranslation();
+  const locale: Locale = activeInstance.resolvedLanguage === "en-US" ? "en-US" : "zh-CN";
+  return {
+    locale,
+    setLocale: (nextLocale) => {
+      void activeInstance.changeLanguage(nextLocale);
+    },
+    t: (key) => t(key),
+  };
 }
 
 export type { Locale, MessageKey } from "./messages";

@@ -31,6 +31,8 @@ docs/19-ACCEPTANCE-CRITERIA.md
 docs/20-AI-IMPLEMENTATION-RULES.md
 docs/SOURCE-REFERENCES.md
 docs/adr/ADR-000-template.md
+docs/adr/ADR-001-modular-monolith-stack.md
+docs/adr/ADR-002-database-access-and-migrations.md
 docs/openapi/openapi.yaml
 docs/schemas/status-registry.yaml
 frontend/admin-web/README.md

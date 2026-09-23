@@ -11,6 +11,7 @@
     "@vps-billing/api-types": "0.1.0",
     "@vps-billing/i18n": "0.1.0",
     "@vps-billing/ui": "0.1.0",
+    "@tanstack/react-query": "^5.103.2",
     "react": "^19.1.1",
     "react-dom": "^19.1.1"
   }

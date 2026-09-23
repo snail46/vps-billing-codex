@@ -1,4 +1,4 @@
--- Consolidated V1 reference schema. Production must use versioned migrations.
+-- Initial V1 schema.
 
 CREATE TABLE users (
   id uuid PRIMARY KEY,
@@ -452,5 +452,4 @@ CREATE TABLE system_settings (
   updated_at timestamptz NOT NULL DEFAULT now(),
   updated_by uuid
 );
-
 

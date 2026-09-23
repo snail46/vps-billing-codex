@@ -1,5 +1,6 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { I18nProvider } from "@vps-billing/i18n";
 import "@vps-billing/ui/styles.css";
 
@@ -10,10 +11,16 @@ if (!root) {
   throw new Error("root element is missing");
 }
 
+const queryClient = new QueryClient({
+  defaultOptions: { queries: { retry: 1, staleTime: 15_000 } },
+});
+
 createRoot(root).render(
   <StrictMode>
-    <I18nProvider>
-      <App />
-    </I18nProvider>
+    <QueryClientProvider client={queryClient}>
+      <I18nProvider>
+        <App />
+      </I18nProvider>
+    </QueryClientProvider>
   </StrictMode>,
 );
