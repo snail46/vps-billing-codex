@@ -1,0 +1,9 @@
+.env
+.codex-cache/
+backend/.codex-cache/
+node_modules/
+**/dist/
+*.tsbuildinfo
+*.exe
+*.test
+coverage/

@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - name: Verify formatting
+        run: test -z "$(gofmt -l .)"
+      - run: go vet ./...
+      - run: go test -race ./...
+      - run: go build ./cmd/server ./cmd/worker ./cmd/migrate
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm audit --audit-level=moderate
+      - run: npm run lint
+      - run: npm run test
+      - run: npm run typecheck
+      - run: npm run build
+
+  compose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start foundation stack
+        run: docker compose -f deploy/docker-compose.yml up --build --detach --wait
+      - name: Verify gateway health
+        run: curl --fail --show-error http://localhost:8080/health/ready
+      - name: Show service logs
+        if: failure()
+        run: docker compose -f deploy/docker-compose.yml logs
+      - name: Stop foundation stack
+        if: always()
+        run: docker compose -f deploy/docker-compose.yml down --volumes
