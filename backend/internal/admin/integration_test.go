@@ -28,7 +28,10 @@ func TestWalletAdjustmentIsBalancedAndAudited(t *testing.T) {
 	}
 	defer pool.Close()
 	userID, adminID := uuid.New(), uuid.New()
-	if _, err = pool.Exec(ctx, `INSERT INTO users(id,email,password_hash,status) VALUES($1,$2,'test','active'); INSERT INTO admins(id,email,password_hash,status) VALUES($3,$4,'test','active')`, userID, "admin-wallet-"+userID.String()+"@example.com", adminID, "admin-wallet-"+adminID.String()+"@example.com"); err != nil {
+	if _, err = pool.Exec(ctx, `INSERT INTO users(id,email,password_hash,status) VALUES($1,$2,'test','active')`, userID, "admin-wallet-"+userID.String()+"@example.com"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `INSERT INTO admins(id,email,password_hash,status) VALUES($1,$2,'test','active')`, adminID, "admin-wallet-"+adminID.String()+"@example.com"); err != nil {
 		t.Fatal(err)
 	}
 	repository := NewPostgresRepository(pool)
