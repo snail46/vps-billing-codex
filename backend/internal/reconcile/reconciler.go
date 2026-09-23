@@ -204,7 +204,9 @@ func (p *Processor) reconcileInstances(ctx context.Context) (int, error) {
 		if getErr != nil {
 			var providerErr *providercontract.Error
 			if errors.As(getErr, &providerErr) && (providerErr.Code == providercontract.ErrorNodeOffline || providerErr.Code == providercontract.ErrorUnavailable || providerErr.Code == providercontract.ErrorTimeout) {
-				_, _ = p.pool.Exec(ctx, `UPDATE instances SET observed_state='unknown',last_synced_at=now(),version=version+1,updated_at=now() WHERE id=$1 AND observed_state<>'unknown'`, item.id)
+				if _, updateErr := p.pool.Exec(ctx, `UPDATE instances SET observed_state='unknown',last_synced_at=now(),version=version+1,updated_at=now() WHERE id=$1 AND observed_state<>'unknown'`, item.id); updateErr != nil {
+					return processed, updateErr
+				}
 			}
 			continue
 		}

@@ -24,6 +24,7 @@ import (
 	"vps-billing/backend/internal/identity"
 	"vps-billing/backend/internal/infrastructure/postgres"
 	"vps-billing/backend/internal/infrastructure/rediscache"
+	"vps-billing/backend/internal/observability"
 	"vps-billing/backend/internal/operation"
 	"vps-billing/backend/internal/payment/fake"
 	platformruntime "vps-billing/backend/internal/platform/runtime"
@@ -68,7 +69,7 @@ func run(logger *slog.Logger) error {
 	router := chi.NewRouter()
 	health.New(postgresClient, redisClient, logger).Register(router)
 	metricsCollector := metricshttp.NewCollector()
-	metricshttp.New(metricsCollector, postgresClient.Pool(), settings.MetricsToken).Register(router)
+	metricshttp.New(metricsCollector, observability.NewPostgresMetrics(postgresClient.Pool()), settings.MetricsToken).Register(router)
 	identityService := identity.NewService(identity.NewPostgresRepository(postgresClient.Pool()), settings.UserSessionSecret, settings.AdminSessionSecret, settings.UserCSRFSecret, settings.AdminCSRFSecret, settings.AdminTOTPEncryptionKey, settings.SessionTTL)
 	identityHandler := identityhttp.New(identityService, ratelimit.New(redisClient.Raw(), "auth:"), audit.NewPostgresRecorder(postgresClient.Pool()), settings.CookieSecure)
 	identityHandler.Register(router)
