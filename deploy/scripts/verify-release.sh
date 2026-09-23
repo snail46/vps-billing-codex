@@ -9,5 +9,6 @@ curl --fail --show-error "$APP_URL/health/live"
 curl --fail --show-error "$APP_URL/health/ready"
 docker compose -f "$COMPOSE_FILE" exec -T server wget -qO- --header="Authorization: Bearer $METRICS_TOKEN" http://localhost:8080/metrics |
   grep -q 'vps_billing_metrics_collection_success 1'
-curl --fail --silent --show-error --head "$APP_URL/health/live" | grep -qi '^X-Content-Type-Options: nosniff'
+curl --fail --silent --show-error --dump-header - --output /dev/null "$APP_URL/health/live" |
+  grep -qi '^X-Content-Type-Options: nosniff'
 echo "release verification passed"

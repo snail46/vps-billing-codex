@@ -246,6 +246,28 @@ jobs:
           stage="verify secret setting masking and audit"
           curl --fail-with-body --show-error --cookie /tmp/admin.cookies -H 'Content-Type: application/json' -H "X-CSRF-Token: $admin_csrf" -X PUT -d '{"value":"private-ci-value","is_secret":true}' http://localhost:8080/api/v1/admin/settings/ci.secret | jq -e '.data.value == "***"'
           curl --fail-with-body --show-error --cookie /tmp/admin.cookies http://localhost:8080/api/v1/admin/settings | jq -e '.data.items[] | select(.key == "ci.secret") | .value == "***"'
+      - name: Exercise encrypted backup and restore
+        run: |
+          set -Eeuo pipefail
+          backup_root=$(mktemp -d)
+          restore_config=$(mktemp -d)
+          passphrase_file=$(mktemp)
+          chmod 600 "$passphrase_file"
+          printf '%s\n' 'ci-backup-passphrase-not-used-outside-this-run' > "$passphrase_file"
+          backup_set=$(BACKUP_DIRECTORY="$backup_root" \
+            BACKUP_PASSPHRASE_FILE="$passphrase_file" \
+            CONFIG_SOURCE="$PWD/.env.example" \
+            deploy/scripts/backup.sh)
+          test -s "$backup_set/database.dump.enc"
+          test -s "$backup_set/config.tar.enc"
+          docker compose -f deploy/docker-compose.yml stop server worker runman-gateway
+          BACKUP_SET="$backup_set" \
+            BACKUP_PASSPHRASE_FILE="$passphrase_file" \
+            CONFIG_RESTORE_DIRECTORY="$restore_config" \
+            deploy/scripts/restore.sh --confirm
+          test -f "$restore_config/.env.example"
+          docker compose -f deploy/docker-compose.yml up --detach --wait server worker runman-gateway
+          METRICS_TOKEN='development-metrics-token-change-before-production' deploy/scripts/verify-release.sh
       - name: Show service logs
         if: failure()
         run: docker compose -f deploy/docker-compose.yml logs
