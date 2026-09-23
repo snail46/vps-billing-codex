@@ -581,34 +581,35 @@ func (q *Queries) UpdateOperationProgress(ctx context.Context, arg UpdateOperati
 
 const updateOperationStep = `-- name: UpdateOperationStep :one
 UPDATE operation_steps
-SET status = $2, progress = $3, attempt = $4, error_code = $5, error_message = $6,
-    output = $7, started_at = COALESCE(started_at, CASE WHEN $2 = 'running' THEN now() END),
-    finished_at = CASE WHEN $2 IN ('succeeded', 'failed', 'skipped') THEN now() ELSE finished_at END,
+SET status = $1::varchar, progress = $2, attempt = $3,
+    error_code = $4, error_message = $5, output = $6,
+    started_at = COALESCE(started_at, CASE WHEN $1::varchar = 'running' THEN now() END),
+    finished_at = CASE WHEN $1::varchar IN ('succeeded', 'failed', 'skipped') THEN now() ELSE finished_at END,
     updated_at = now()
-WHERE operation_id = $1 AND step_key = $8
+WHERE operation_id = $7 AND step_key = $8
 RETURNING id, operation_id, step_key, step_order, status, progress, attempt, error_code, error_message, started_at, finished_at, created_at, updated_at, output
 `
 
 type UpdateOperationStepParams struct {
-	OperationID  uuid.UUID   `json:"operation_id"`
 	Status       string      `json:"status"`
 	Progress     int32       `json:"progress"`
 	Attempt      int32       `json:"attempt"`
 	ErrorCode    pgtype.Text `json:"error_code"`
 	ErrorMessage pgtype.Text `json:"error_message"`
 	Output       []byte      `json:"output"`
+	OperationID  uuid.UUID   `json:"operation_id"`
 	StepKey      string      `json:"step_key"`
 }
 
 func (q *Queries) UpdateOperationStep(ctx context.Context, arg UpdateOperationStepParams) (OperationStep, error) {
 	row := q.db.QueryRow(ctx, updateOperationStep,
-		arg.OperationID,
 		arg.Status,
 		arg.Progress,
 		arg.Attempt,
 		arg.ErrorCode,
 		arg.ErrorMessage,
 		arg.Output,
+		arg.OperationID,
 		arg.StepKey,
 	)
 	var i OperationStep

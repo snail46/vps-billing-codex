@@ -38,11 +38,12 @@ RETURNING *;
 
 -- name: UpdateOperationStep :one
 UPDATE operation_steps
-SET status = $2, progress = $3, attempt = $4, error_code = $5, error_message = $6,
-    output = $7, started_at = COALESCE(started_at, CASE WHEN $2 = 'running' THEN now() END),
-    finished_at = CASE WHEN $2 IN ('succeeded', 'failed', 'skipped') THEN now() ELSE finished_at END,
+SET status = sqlc.arg(status)::varchar, progress = sqlc.arg(progress), attempt = sqlc.arg(attempt),
+    error_code = sqlc.arg(error_code), error_message = sqlc.arg(error_message), output = sqlc.arg(output),
+    started_at = COALESCE(started_at, CASE WHEN sqlc.arg(status)::varchar = 'running' THEN now() END),
+    finished_at = CASE WHEN sqlc.arg(status)::varchar IN ('succeeded', 'failed', 'skipped') THEN now() ELSE finished_at END,
     updated_at = now()
-WHERE operation_id = $1 AND step_key = $8
+WHERE operation_id = sqlc.arg(operation_id) AND step_key = sqlc.arg(step_key)
 RETURNING *;
 
 -- name: CompleteOperation :one
