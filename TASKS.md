@@ -59,9 +59,9 @@
 **Gate:** 浏览→下单→假支付→自动开通→自动进度→运行。
 
 ## Phase 7 — Direct Provider
-- [ ] CLICD 或 LXDAPI Adapter
-- [ ] Contract tests
-- [ ] timeout/idempotency
+- [x] CLICD 或 LXDAPI Adapter
+- [x] Contract tests
+- [x] timeout/idempotency
 **Gate:** 替换 MockProvider 不修改 Business Core。
 
 ## Phase 8 — User Web

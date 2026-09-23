@@ -11,3 +11,5 @@ Scheduler Integration：相同输入排序确定、能力过滤、并发 Reserva
 Operation Integration：并发相同 idempotency key 只创建一个 Operation；Outbox→Redis Stream→Worker 首次可重试失败；RetryScheduler 到期重投；第二次执行成功；跨用户查询返回 not found；SSE 事件 ownership filter 拒绝无 owner 或其他用户事件。
 
 Provision Integration：paid purchase event→pending Subscription/Instance/Operation→deterministic Scheduler Reservation→MockProvider Create/Get→running Instance→committed capacity→active Subscription→fulfilled Order→ready Notification；重复 Trigger 只保留一条 Operation。Compose Gate 必须通过真实 HTTP 支付回调并轮询授权 Operation API 看到 11 个步骤和 succeeded。
+
+LXD Direct Provider Contract：使用协议级 HTTP fixture 验证 project/cluster target、异步 Operation wait、确定性 Create replay、动作/重装/删除 replay、同键跨实例冲突、状态/IP/流量映射、超时与 HTTP 错误标准化，以及 ResetPassword/NAT 的 `UNSUPPORTED_OPERATION`。测试构造器可使用本地 HTTP；数据库 Factory 永远要求 HTTPS+mTLS。

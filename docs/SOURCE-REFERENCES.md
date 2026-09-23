@@ -6,6 +6,14 @@
 - Repository: https://github.com/xkatld/lxdapi-web-server
 - Wiki: https://github.com/xkatld/lxdapi-web-server/wiki
 
+## Canonical LXD Direct API
+- Instance creation: https://github.com/canonical/lxd/blob/main/doc/howto/instances_create.md
+- Go client interfaces and operation contract: https://github.com/canonical/lxd/blob/main/client/interfaces.go
+- REST query client source: https://github.com/canonical/lxd/blob/main/lxc/query.go
+- Projects: https://documentation.ubuntu.com/lxd/latest/howto/projects_create/
+- Current documentation (authentication, instances, operations): https://documentation.ubuntu.com/lxd/latest/
+- Last verified: 2026-09-23
+
 ## CLICD
 - Documentation: https://cli.cd/guide/introduction
 - Site/API docs: https://cli.cd/

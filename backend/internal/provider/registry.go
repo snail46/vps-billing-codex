@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"sync"
 
@@ -51,7 +52,13 @@ func (r *Registry) Resolve(_ context.Context, id uuid.UUID) (Provider, error) {
 	return r.Get(id)
 }
 
-type Factory func() Provider
+type FactoryConfig struct {
+	Endpoint      string
+	CredentialRef *string
+	Config        json.RawMessage
+}
+
+type Factory func(FactoryConfig) (Provider, error)
 
 type DynamicRegistry struct {
 	registry  *Registry
@@ -91,7 +98,15 @@ func (r *DynamicRegistry) Resolve(ctx context.Context, id uuid.UUID) (Provider, 
 	if factory == nil {
 		return nil, ErrNotRegistered
 	}
-	adapter := factory()
+	var credentialRef *string
+	if record.CredentialRef.Valid {
+		value := record.CredentialRef.String
+		credentialRef = &value
+	}
+	adapter, err := factory(FactoryConfig{Endpoint: record.Endpoint.String, CredentialRef: credentialRef, Config: record.Config})
+	if err != nil {
+		return nil, err
+	}
 	if err := r.registry.Register(id, adapter); err != nil {
 		return r.registry.Get(id)
 	}

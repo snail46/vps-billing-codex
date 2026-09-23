@@ -29,3 +29,5 @@ Subscription lifecycle Worker 使用 `SUBSCRIPTION_GRACE_PERIOD`（Go duration�
 Worker 需要访问 Redis Stream `operation-queue`（consumer group `operation-workers`）与 `domain-events`。PostgreSQL 是 Operation 的真相源；Redis 暂时不可用时 Outbox 保留待发布事件，恢复后继续投递。部署期间至少运行一个 Worker；失联 consumer 与 stale heartbeat 的自动恢复由 Phase 11 Reconciler 提供。
 
 开发/验收环境可在 providers 表配置 `provider_type=mock`；Worker 的 Dynamic Registry 会按 ID 延迟创建 Mock Adapter。生产禁止使用 Mock，必须在 Phase 7/10 提供已核对官方协议的 Adapter Factory。启用销售的 Plan 必须配置 active NodeGroup、兼容能力和 default_image_id，否则 Provision 保持失败/重试状态而不会假成功。
+
+Direct LXD 部署使用 `provider_type=lxdapi`。Provider `endpoint` 必须为受信任的 HTTPS LXD 地址，`credential_ref` 只允许大写字母、数字和下划线。若引用为 `LXD_PRIMARY`，Worker 环境必须提供 `LXD_PRIMARY_CLIENT_CERT_PEM`、`LXD_PRIMARY_CLIENT_KEY_PEM`、`LXD_PRIMARY_SERVER_CA_PEM`。Provider `config` 可包含 `project`、`image_server`、`operation_timeout_seconds`；证书和私钥禁止写入数据库或日志。Node `external_ref` 必须对应 LXD cluster member target。

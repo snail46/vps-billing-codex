@@ -93,7 +93,9 @@ func TestPaidOrderProvisionsRunningInstance(t *testing.T) {
 		t.Fatal(err)
 	}
 	providerRegistry := providercontract.NewDynamicRegistry(pool)
-	if err := providerRegistry.RegisterFactory("mock", func() providercontract.Provider { return providermock.New() }); err != nil {
+	if err := providerRegistry.RegisterFactory("mock", func(providercontract.FactoryConfig) (providercontract.Provider, error) {
+		return providermock.New(), nil
+	}); err != nil {
 		t.Fatal(err)
 	}
 	workflowRegistry := operation.NewWorkflowRegistry()

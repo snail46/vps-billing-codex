@@ -13,6 +13,7 @@ import (
 	"vps-billing/backend/internal/outbox"
 	platformruntime "vps-billing/backend/internal/platform/runtime"
 	"vps-billing/backend/internal/provider"
+	"vps-billing/backend/internal/provider/lxdapi"
 	providermock "vps-billing/backend/internal/provider/mock"
 	"vps-billing/backend/internal/provision"
 	"vps-billing/backend/internal/subscription"
@@ -45,8 +46,12 @@ func main() {
 	workflowRegistry := operation.NewWorkflowRegistry()
 	infrastructureRepository := infrastructure.NewPostgresRepository(postgresClient.Pool())
 	providerRegistry := provider.NewDynamicRegistry(postgresClient.Pool())
-	if err := providerRegistry.RegisterFactory("mock", func() provider.Provider { return providermock.New() }); err != nil {
+	if err := providerRegistry.RegisterFactory("mock", func(provider.FactoryConfig) (provider.Provider, error) { return providermock.New(), nil }); err != nil {
 		logger.Error("mock provider registration failed", "error", err)
+		os.Exit(1)
+	}
+	if err := providerRegistry.RegisterFactory("lxdapi", lxdapi.NewFromFactory); err != nil {
+		logger.Error("LXD provider registration failed", "error", err)
 		os.Exit(1)
 	}
 	provisionRepository := provision.NewRepository(postgresClient.Pool())

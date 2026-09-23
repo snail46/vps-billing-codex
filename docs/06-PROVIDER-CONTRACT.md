@@ -20,3 +20,7 @@ Agent Provider：Runman Gateway → runman-agent。
 V1 MockProvider 是完整的内存 Contract 实现：覆盖 health/capabilities/images/create/get/actions/usage/traffic/NAT，Create 与动作均要求幂等键，且同键不同请求会显式失败。它只用于自动化验收和开发，不作为生产 Provider。Provider Registry 按数据库 Provider ID 解析 Adapter，业务代码不按 provider type 分支。
 
 Worker 使用 Dynamic Registry 按数据库 Provider ID 延迟解析 Adapter；provider_type→Factory 的绑定只允许出现在 composition/provider layer。Mock Create 返回可重复查询的 running 实例，并按请求生成文档保留网段地址，供 Provision 网络持久化测试。
+
+V1 Direct Provider 为 `lxdapi`。它通过 Canonical LXD `/1.0` REST API 实现 Health、Capabilities、Images、Create/Get、Start/Stop/Restart/Reinstall/Delete、Usage/Traffic，并将异步 LXD Operation 等待限制在配置超时内。Create 使用确定性实例名和 LXD 实例配置中的平台身份验证实现跨进程安全重试；动作幂等键在同一 Adapter 生命周期内拒绝跨实例复用。ResetPassword 与 NAT 明确标记不支持。
+
+Provider 数据库配置示例（不包含 Secret）：`endpoint=https://lxd.example:8443`、`credential_ref=LXD_PRIMARY`、`config={"project":"billing","image_server":"https://cloud-images.ubuntu.com/releases","operation_timeout_seconds":30}`。业务和 Workflow 只依赖 Provider Contract，不读取这些字段。
