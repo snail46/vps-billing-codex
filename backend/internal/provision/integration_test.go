@@ -47,15 +47,21 @@ func TestPaidOrderProvisionsRunningInstance(t *testing.T) {
 
 	userID, productID, planID := uuid.New(), uuid.New(), uuid.New()
 	providerID, groupID, nodeID := uuid.New(), uuid.New(), uuid.New()
-	if _, err := pool.Exec(ctx, `
-INSERT INTO users (id,email,password_hash,status,locale,timezone) VALUES ($1,$2,'test','active','en-US','UTC');
-INSERT INTO node_groups (id,name,region,status) VALUES ($3,$4,'test-region','active');
-INSERT INTO providers (id,name,provider_type,status,capabilities) VALUES ($5,$6,'mock','active','{"create_instance":true}');
-INSERT INTO nodes (id,provider_id,node_group_id,provider_node_id,name,region,status,cpu_total,memory_total_mb,disk_total_gb,ipv4_total,capabilities,last_seen_at) VALUES ($7,$5,$3,$8,$9,'test-region','online',8,16384,500,8,'{"virtualization":"kvm"}',now());
-INSERT INTO products (id,slug,name_i18n,status) VALUES ($10,$11,'{"en-US":"Provision"}','active');
-INSERT INTO plans (id,product_id,node_group_id,slug,name_i18n,status,cpu_cores,memory_mb,disk_gb,ipv4_count,virtualization,billing_cycle,price_minor,currency,default_image_id) VALUES ($12,$10,$3,$13,'{"en-US":"Provision Plan"}','active',2,2048,30,1,'kvm','monthly',1299,'USD','ubuntu-24.04');`,
-		userID, "provision-"+userID.String()+"@example.com", groupID, "group-"+groupID.String(), providerID, "provider-"+providerID.String(), nodeID, "node-1", "node-"+nodeID.String(), productID, "product-"+productID.String(), planID, "plan-"+planID.String()); err != nil {
-		t.Fatal(err)
+	fixtures := []struct {
+		query string
+		args  []any
+	}{
+		{`INSERT INTO users (id,email,password_hash,status,locale,timezone) VALUES ($1,$2,'test','active','en-US','UTC')`, []any{userID, "provision-" + userID.String() + "@example.com"}},
+		{`INSERT INTO node_groups (id,name,region,status) VALUES ($1,$2,'test-region','active')`, []any{groupID, "group-" + groupID.String()}},
+		{`INSERT INTO providers (id,name,provider_type,status,capabilities) VALUES ($1,$2,'mock','active','{"create_instance":true}')`, []any{providerID, "provider-" + providerID.String()}},
+		{`INSERT INTO nodes (id,provider_id,node_group_id,provider_node_id,name,region,status,cpu_total,memory_total_mb,disk_total_gb,ipv4_total,capabilities,last_seen_at) VALUES ($1,$2,$3,$4,$5,'test-region','online',8,16384,500,8,'{"virtualization":"kvm"}',now())`, []any{nodeID, providerID, groupID, "node-1", "node-" + nodeID.String()}},
+		{`INSERT INTO products (id,slug,name_i18n,status) VALUES ($1,$2,'{"en-US":"Provision"}','active')`, []any{productID, "product-" + productID.String()}},
+		{`INSERT INTO plans (id,product_id,node_group_id,slug,name_i18n,status,cpu_cores,memory_mb,disk_gb,ipv4_count,virtualization,billing_cycle,price_minor,currency,default_image_id) VALUES ($1,$2,$3,$4,'{"en-US":"Provision Plan"}','active',2,2048,30,1,'kvm','monthly',1299,'USD','ubuntu-24.04')`, []any{planID, productID, groupID, "plan-" + planID.String()}},
+	}
+	for _, fixture := range fixtures {
+		if _, err := pool.Exec(ctx, fixture.query, fixture.args...); err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	commerceRepository := commerce.NewPostgresRepository(pool)
