@@ -43,6 +43,8 @@ type Querier interface {
 	CreateResourceReservation(ctx context.Context, arg CreateResourceReservationParams) (ResourceReservation, error)
 	CreateUser(ctx context.Context, arg CreateUserParams) (User, error)
 	CreateUserSession(ctx context.Context, arg CreateUserSessionParams) (UserSession, error)
+	CreateUserTicket(ctx context.Context, arg CreateUserTicketParams) (Ticket, error)
+	CreateUserTicketMessage(ctx context.Context, arg CreateUserTicketMessageParams) (TicketMessage, error)
 	DatabasePing(ctx context.Context) (int32, error)
 	EnableAdminTOTP(ctx context.Context, adminID uuid.UUID) error
 	EnsureWallet(ctx context.Context, arg EnsureWalletParams) (Wallet, error)
@@ -52,6 +54,7 @@ type Querier interface {
 	GetAdminByID(ctx context.Context, id uuid.UUID) (Admin, error)
 	GetAdminTOTPSecret(ctx context.Context, adminID uuid.UUID) (AdminTotpSecret, error)
 	GetInfrastructureProviderByID(ctx context.Context, id uuid.UUID) (Provider, error)
+	GetInstanceActionContextByOperation(ctx context.Context, id uuid.UUID) (GetInstanceActionContextByOperationRow, error)
 	GetOperationByID(ctx context.Context, id uuid.UUID) (Operation, error)
 	GetOperationByIdempotency(ctx context.Context, idempotencyKey string) (Operation, error)
 	GetOperationForUser(ctx context.Context, arg GetOperationForUserParams) (Operation, error)
@@ -65,6 +68,9 @@ type Querier interface {
 	GetSubscriptionForRenewal(ctx context.Context, arg GetSubscriptionForRenewalParams) (GetSubscriptionForRenewalRow, error)
 	GetUserByEmail(ctx context.Context, email string) (User, error)
 	GetUserByID(ctx context.Context, id uuid.UUID) (User, error)
+	GetUserInstance(ctx context.Context, arg GetUserInstanceParams) (GetUserInstanceRow, error)
+	GetUserInstanceActionContext(ctx context.Context, arg GetUserInstanceActionContextParams) (GetUserInstanceActionContextRow, error)
+	GetUserTicket(ctx context.Context, arg GetUserTicketParams) (GetUserTicketRow, error)
 	GetWalletByUserCurrency(ctx context.Context, arg GetWalletByUserCurrencyParams) (Wallet, error)
 	GetWebhookReceipt(ctx context.Context, arg GetWebhookReceiptParams) (PaymentWebhookReceipt, error)
 	InsertWebhookReceipt(ctx context.Context, arg InsertWebhookReceiptParams) (uuid.UUID, error)
@@ -77,6 +83,12 @@ type Querier interface {
 	ListOperationSteps(ctx context.Context, operationID uuid.UUID) ([]OperationStep, error)
 	ListOrdersByUser(ctx context.Context, userID uuid.UUID) ([]ListOrdersByUserRow, error)
 	ListSubscriptionsByUser(ctx context.Context, userID uuid.UUID) ([]ListSubscriptionsByUserRow, error)
+	ListUserInstanceNetworks(ctx context.Context, arg ListUserInstanceNetworksParams) ([]ListUserInstanceNetworksRow, error)
+	ListUserInstanceTraffic(ctx context.Context, arg ListUserInstanceTrafficParams) ([]ListUserInstanceTrafficRow, error)
+	ListUserInstances(ctx context.Context, userID uuid.UUID) ([]ListUserInstancesRow, error)
+	ListUserNotifications(ctx context.Context, userID *uuid.UUID) ([]ListUserNotificationsRow, error)
+	ListUserTicketMessages(ctx context.Context, arg ListUserTicketMessagesParams) ([]ListUserTicketMessagesRow, error)
+	ListUserTickets(ctx context.Context, userID uuid.UUID) ([]ListUserTicketsRow, error)
 	LockPaymentOrderInvoice(ctx context.Context, arg LockPaymentOrderInvoiceParams) (LockPaymentOrderInvoiceRow, error)
 	LockResourceReservation(ctx context.Context, id uuid.UUID) (ResourceReservation, error)
 	LockSubscriptionByID(ctx context.Context, id uuid.UUID) (Subscription, error)
@@ -88,6 +100,7 @@ type Querier interface {
 	MarkOutboxRetry(ctx context.Context, id uuid.UUID) error
 	MarkPaymentSucceeded(ctx context.Context, arg MarkPaymentSucceededParams) error
 	MarkPurchaseOrderFulfilledIfReady(ctx context.Context, id uuid.UUID) error
+	MarkUserNotificationRead(ctx context.Context, arg MarkUserNotificationReadParams) (int64, error)
 	MarkWebhookProcessed(ctx context.Context, id uuid.UUID) error
 	ReleaseNodeReservation(ctx context.Context, arg ReleaseNodeReservationParams) (Node, error)
 	RenewSubscriptionAfterPayment(ctx context.Context, arg RenewSubscriptionAfterPaymentParams) (Subscription, error)
@@ -96,6 +109,8 @@ type Querier interface {
 	RevokeUserSession(ctx context.Context, tokenHash []byte) error
 	ScheduleOperationRetry(ctx context.Context, arg ScheduleOperationRetryParams) (Operation, error)
 	SelectCandidateNodesForUpdate(ctx context.Context, arg SelectCandidateNodesForUpdateParams) ([]Node, error)
+	SetInstanceActionState(ctx context.Context, arg SetInstanceActionStateParams) error
+	SetInstanceObservedState(ctx context.Context, arg SetInstanceObservedStateParams) error
 	SetInstancePlacement(ctx context.Context, arg SetInstancePlacementParams) error
 	SetInstanceProviderResult(ctx context.Context, arg SetInstanceProviderResultParams) error
 	SetInstanceProvisionError(ctx context.Context, id uuid.UUID) error
@@ -103,6 +118,7 @@ type Querier interface {
 	SetSubscriptionCancelAtPeriodEnd(ctx context.Context, arg SetSubscriptionCancelAtPeriodEndParams) (Subscription, error)
 	TouchAdminSession(ctx context.Context, id uuid.UUID) error
 	TouchUserSession(ctx context.Context, id uuid.UUID) error
+	TouchUserTicket(ctx context.Context, arg TouchUserTicketParams) error
 	UpdateAdminLastLogin(ctx context.Context, id uuid.UUID) error
 	UpdateOperationProgress(ctx context.Context, arg UpdateOperationProgressParams) (Operation, error)
 	UpdateOperationStep(ctx context.Context, arg UpdateOperationStepParams) (OperationStep, error)

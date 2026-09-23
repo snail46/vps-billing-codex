@@ -1,46 +1,134 @@
-import { ApiRequestError, apiRequest, type AuthData, type UserPrincipal } from "@vps-billing/api-types";
+import {
+  ApiRequestError, apiRequest, type AuthData, type CatalogItem, type Instance, type InstanceNetwork,
+  type Invoice, type ItemList, type Notification, type Operation, type OperationAccepted, type Order,
+  type Subscription, type Ticket, type TrafficRecord, type UserPrincipal, type Wallet,
+} from "@vps-billing/api-types";
 import { type Locale, type MessageKey, useI18n } from "@vps-billing/i18n";
-import { AppShell, Button, Card } from "@vps-billing/ui";
-import { useMutation } from "@tanstack/react-query";
-import { type FormEvent, useEffect, useState } from "react";
+import { Alert, AppShell, Button, Card, EmptyState, ErrorState, OperationProgress, Skeleton, StatusBadge } from "@vps-billing/ui";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { type FormEvent, type ReactNode, useEffect, useRef, useState } from "react";
+
+type Page = "dashboard" | "products" | "instances" | "orders" | "invoices" | "wallet" | "notifications" | "tickets" | "account";
+type T = (key: MessageKey) => string;
 
 export function App() {
   const { locale, setLocale, t } = useI18n();
-  const [register, setRegister] = useState(false);
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const mutation = useMutation({
-    mutationFn: () => apiRequest<AuthData<UserPrincipal>>(`/api/v1/auth/${register ? "register" : "login"}`, {
-      method: "POST",
-      body: JSON.stringify({ email, password, locale, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone }),
-    }),
-  });
+  const queryClient = useQueryClient();
+  const auth = useQuery({ queryKey: ["auth"], queryFn: () => apiRequest<AuthData<UserPrincipal>>("/api/v1/auth/me"), retry: false });
+  const [page, setPage] = useHashPage();
+  const localeInitialized = useRef(false);
 
+  useEffect(() => { document.documentElement.lang = locale; document.title = t("user.appName"); }, [locale, t]);
   useEffect(() => {
-    document.documentElement.lang = locale;
-    document.title = t("user.appName");
-  }, [locale, t]);
+    if (auth.data?.principal.locale && !localeInitialized.current) {
+      localeInitialized.current = true;
+      setLocale(auth.data.principal.locale);
+    }
+  }, [auth.data?.principal.locale, setLocale]);
 
-  const submit = (event: FormEvent) => { event.preventDefault(); mutation.mutate(); };
-  const errorKey: MessageKey = mutation.error instanceof ApiRequestError ? mutation.error.messageKey as MessageKey : "errors.internal";
+  if (auth.isPending) return <AppShell title={t("user.appName")} actions={<LanguageSelect locale={locale} setLocale={setLocale} t={t} />}><Skeleton label={t("common.loading")} /></AppShell>;
+  if (auth.isError && (!(auth.error instanceof ApiRequestError) || auth.error.status !== 401)) return <AppShell title={t("user.appName")}><ErrorState title={errorText(auth.error,t)} retry={() => void auth.refetch()} retryLabel={t("common.retry")} /></AppShell>;
+  if (!auth.data) return <AuthScreen locale={locale} setLocale={setLocale} t={t} onAuthenticated={(data) => queryClient.setQueryData(["auth"],data)} />;
 
-  return (
-    <AppShell title={t("user.appName")} actions={<LanguageSelect locale={locale} setLocale={setLocale} t={t} />}>
-      <div className="auth-card"><Card>
-        <h1 className="foundation-title">{t("auth.title")}</h1>
-        <form className="auth-form" onSubmit={submit}>
-          <label className="form-field">{t("auth.email")}<input className="form-input" type="email" autoComplete="email" required value={email} onChange={(event) => setEmail(event.target.value)} /></label>
-          <label className="form-field">{t("auth.password")}<input className="form-input" type="password" autoComplete={register ? "new-password" : "current-password"} minLength={12} maxLength={128} required value={password} onChange={(event) => setPassword(event.target.value)} /></label>
-          {mutation.isError && <p className="form-error" role="alert">{t(errorKey)}</p>}
-          {mutation.isSuccess && <p className="form-success" role="status">{t("auth.success")}</p>}
-          <Button type="submit" disabled={mutation.isPending}>{t(mutation.isPending ? "auth.pending" : register ? "auth.register" : "auth.login")}</Button>
-          <button className="link-button" type="button" onClick={() => { setRegister(!register); mutation.reset(); }}>{t(register ? "auth.switchToLogin" : "auth.switchToRegister")}</button>
-        </form>
-      </Card></div>
-    </AppShell>
-  );
+  return <AppShell title={t("user.appName")} actions={<><LanguageSelect locale={locale} setLocale={setLocale} t={t} /><Logout csrf={auth.data.csrf_token} t={t} /></>}>
+    <div className="portal-layout">
+      <nav className="portal-nav" aria-label={t("user.appName")}>
+        {(["dashboard","products","instances","orders","invoices","wallet","notifications","tickets","account"] as Page[]).map((item)=><button key={item} type="button" data-active={page===item} onClick={()=>setPage(item)}>{t(`nav.${item}` as MessageKey)}</button>)}
+      </nav>
+      <div className="portal-content">
+        <PageView page={page} locale={locale} t={t} csrf={auth.data.csrf_token} principal={auth.data.principal} navigate={setPage} />
+      </div>
+    </div>
+  </AppShell>;
 }
 
-function LanguageSelect({ locale, setLocale, t }: { locale: Locale; setLocale: (locale: Locale) => void; t: (key: MessageKey) => string }) {
-  return <label><span className="sr-only">{t("common.language")}</span><select className="locale-select" value={locale} onChange={(event) => setLocale(event.target.value as Locale)}><option value="zh-CN">{t("common.locale.zh-CN")}</option><option value="en-US">{t("common.locale.en-US")}</option></select></label>;
+function AuthScreen({locale,setLocale,t,onAuthenticated}:{locale:Locale;setLocale:(value:Locale)=>void;t:T;onAuthenticated:(data:AuthData<UserPrincipal>)=>void}) {
+  const [register,setRegister]=useState(false),[email,setEmail]=useState(""),[password,setPassword]=useState("");
+  const mutation=useMutation({mutationFn:()=>apiRequest<AuthData<UserPrincipal>>(`/api/v1/auth/${register?"register":"login"}`,{method:"POST",body:JSON.stringify({email,password,locale,timezone:Intl.DateTimeFormat().resolvedOptions().timeZone})}),onSuccess:onAuthenticated});
+  const submit=(event:FormEvent)=>{event.preventDefault();mutation.mutate()};
+  return <AppShell title={t("user.appName")} actions={<LanguageSelect locale={locale} setLocale={setLocale} t={t}/>}><div className="auth-card"><Card><h1>{t("auth.title")}</h1><form className="auth-form" onSubmit={submit}>
+    <label className="form-field">{t("auth.email")}<input className="form-input" type="email" autoComplete="email" required value={email} onChange={(e)=>setEmail(e.target.value)}/></label>
+    <label className="form-field">{t("auth.password")}<input className="form-input" type="password" autoComplete={register?"new-password":"current-password"} minLength={12} maxLength={128} required value={password} onChange={(e)=>setPassword(e.target.value)}/></label>
+    {mutation.isError&&<p className="form-error" role="alert">{errorText(mutation.error,t)}</p>}
+    <Button type="submit" disabled={mutation.isPending}>{t(mutation.isPending?"auth.pending":register?"auth.register":"auth.login")}</Button>
+    <button className="link-button" type="button" onClick={()=>{setRegister(!register);mutation.reset()}}>{t(register?"auth.switchToLogin":"auth.switchToRegister")}</button>
+  </form></Card></div></AppShell>;
 }
+
+function PageView({page,locale,t,csrf,principal,navigate}:{page:Page;locale:Locale;t:T;csrf:string;principal:UserPrincipal;navigate:(p:Page)=>void}) {
+  switch(page){
+    case "dashboard":return <Dashboard locale={locale} t={t} navigate={navigate}/>;
+    case "products":return <Catalog locale={locale} t={t} csrf={csrf}/>;
+    case "instances":return <Instances locale={locale} t={t} csrf={csrf} navigate={navigate}/>;
+    case "orders":return <Orders locale={locale} t={t}/>;
+    case "invoices":return <Invoices locale={locale} t={t}/>;
+    case "wallet":return <WalletPage locale={locale} t={t}/>;
+    case "notifications":return <Notifications t={t} csrf={csrf}/>;
+    case "tickets":return <Tickets locale={locale} t={t} csrf={csrf}/>;
+    case "account":return <Account principal={principal} locale={locale} t={t}/>;
+  }
+}
+
+function Dashboard({locale,t,navigate}:{locale:Locale;t:T;navigate:(p:Page)=>void}) {
+  const [now] = useState(() => Date.now());
+  const instances=useQuery({queryKey:["instances"],queryFn:()=>apiRequest<ItemList<Instance>>("/api/v1/instances")});
+  const wallet=useQuery({queryKey:["wallet"],queryFn:()=>apiRequest<Wallet>("/api/v1/wallet?currency=USD")});
+  const subscriptions=useQuery({queryKey:["subscriptions"],queryFn:()=>apiRequest<ItemList<Subscription>>("/api/v1/subscriptions")});
+  const notifications=useQuery({queryKey:["notifications"],queryFn:()=>apiRequest<ItemList<Notification>>("/api/v1/notifications")});
+  const queries=[instances,wallet,subscriptions,notifications], loaded=queries.some((q)=>q.isSuccess), failed=queries.some((q)=>q.isError);
+  if(!loaded&&queries.some((q)=>q.isPending))return <Skeleton label={t("common.loading")}/>;
+  if(!loaded&&failed)return <ErrorState title={t("errors.internal")} retry={()=>queries.forEach((q)=>void q.refetch())} retryLabel={t("common.retry")}/>;
+  const list=instances.data?.items??[], soon=now+7*86400000;
+  return <section><PageTitle>{t("dashboard.title")}</PageTitle>{failed&&<Alert tone="warning">{t("common.partialError")}</Alert>}<div className="metric-grid">
+    <Metric label={t("dashboard.serverCount")} value={String(list.length)} onClick={()=>navigate("instances")}/><Metric label={t("dashboard.runningCount")} value={String(list.filter((i)=>i.observed_state==="running").length)}/><Metric label={t("dashboard.attentionCount")} value={String(list.filter((i)=>["error","unknown"].includes(i.observed_state)).length)}/>
+    <Metric label={t("dashboard.balance")} value={wallet.data?money(wallet.data.available_balance_minor,wallet.data.currency,locale):"—"} onClick={()=>navigate("wallet")}/><Metric label={t("dashboard.expiring")} value={String((subscriptions.data?.items??[]).filter((s)=>s.current_period_end&&Date.parse(s.current_period_end)<soon).length)}/><Metric label={t("dashboard.unread")} value={String((notifications.data?.items??[]).filter((n)=>!n.read_at).length)} onClick={()=>navigate("notifications")}/>
+  </div></section>;
+}
+
+function Catalog({locale,t,csrf}:{locale:Locale;t:T;csrf:string}){
+  const query=useQuery({queryKey:["products"],queryFn:()=>apiRequest<ItemList<CatalogItem>>("/api/v1/products")});const [selected,setSelected]=useState<CatalogItem|null>(null);const [quantity,setQuantity]=useState(1);
+  const mutation=useMutation({mutationFn:()=>apiRequest<Order>("/api/v1/orders",{method:"POST",headers:{"X-CSRF-Token":csrf,"Idempotency-Key":crypto.randomUUID()},body:JSON.stringify({plan_id:selected?.plan_id,quantity})})});
+  if(query.isPending)return <Skeleton label={t("common.loading")}/>;if(query.isError)return <ErrorState title={errorText(query.error,t)} retry={()=>void query.refetch()} retryLabel={t("common.retry")}/>;const items=query.data.items;
+  return <section><PageTitle>{t("catalog.title")}</PageTitle>{items.length===0?<EmptyState title={t("catalog.empty")}/>:<div className="plan-grid">{items.map((item)=><Card key={item.plan_id}><h2>{localized(item.plan_name_i18n,locale)}</h2><p className="price">{money(item.price_minor,item.currency,locale)}</p><dl className="spec-list"><dt>{t("catalog.cpu")}</dt><dd>{item.cpu_cores}</dd><dt>{t("catalog.memory")}</dt><dd>{item.memory_mb} MB</dd><dt>{t("catalog.disk")}</dt><dd>{item.disk_gb} GB</dd><dt>{t("catalog.traffic")}</dt><dd>{item.traffic_gb??t("catalog.unlimited")}</dd><dt>{t("catalog.bandwidth")}</dt><dd>{item.bandwidth_mbps??t("catalog.unlimited")}</dd></dl><Button onClick={()=>{setSelected(item);mutation.reset()}}>{t("catalog.buy")}</Button></Card>)}</div>}
+    {selected&&<div className="dialog-backdrop" role="presentation"><section className="dialog" role="dialog" aria-modal="true" aria-labelledby="checkout-title"><h2 id="checkout-title">{t("checkout.title")}</h2><p>{localized(selected.plan_name_i18n,locale)}</p><label className="form-field">{t("checkout.quantity")}<input className="form-input" type="number" min={1} max={20} value={quantity} onChange={(e)=>setQuantity(Number(e.target.value))}/></label><p><strong>{t("checkout.total")}:</strong> {money(selected.price_minor*quantity,selected.currency,locale)}</p>{mutation.isError&&<Alert tone="danger">{errorText(mutation.error,t)}</Alert>}{mutation.isSuccess&&<Alert tone="success">{t("checkout.created")}</Alert>}<div className="button-row"><Button onClick={()=>mutation.mutate()} disabled={mutation.isPending||mutation.isSuccess}>{t("checkout.create")}</Button><button className="button button--secondary" type="button" onClick={()=>setSelected(null)}>{t("common.cancel")}</button></div></section></div>}
+  </section>;
+}
+
+function Instances({locale,t,csrf,navigate}:{locale:Locale;t:T;csrf:string;navigate:(p:Page)=>void}){const query=useQuery({queryKey:["instances"],queryFn:()=>apiRequest<ItemList<Instance>>("/api/v1/instances")});const [selected,setSelected]=useState<string|null>(null);if(selected)return <InstanceDetail id={selected} locale={locale} t={t} csrf={csrf} back={()=>setSelected(null)}/>;if(query.isPending)return <Skeleton label={t("common.loading")}/>;if(query.isError)return <ErrorState title={errorText(query.error,t)} retry={()=>void query.refetch()} retryLabel={t("common.retry")}/>;return <section><PageTitle>{t("instances.title")}</PageTitle>{query.data.items.length===0?<EmptyState title={t("instances.empty")} action={<Button onClick={()=>navigate("products")}>{t("nav.products")}</Button>}/>:<div className="card-list">{query.data.items.map((item)=><Card key={item.id}><div className="card-heading"><div><h2>{item.name}</h2><p>{localized(item.plan_name_i18n,locale)}</p></div><StatusBadge status={item.observed_state} label={statusText(item.observed_state,t)}/></div><p className="mono">{item.primary_ipv4||item.primary_ipv6||"—"}</p><Button onClick={()=>setSelected(item.id)}>{t("common.view")}</Button></Card>)}</div>}</section>}
+
+function InstanceDetail({id,locale,t,csrf,back}:{id:string;locale:Locale;t:T;csrf:string;back:()=>void}){
+ const item=useQuery({queryKey:["instance",id],queryFn:()=>apiRequest<Instance>(`/api/v1/instances/${id}`)});const networks=useQuery({queryKey:["instance-networks",id],queryFn:()=>apiRequest<ItemList<InstanceNetwork>>(`/api/v1/instances/${id}/networks`)});const traffic=useQuery({queryKey:["instance-traffic",id],queryFn:()=>apiRequest<ItemList<TrafficRecord>>(`/api/v1/instances/${id}/traffic`)});const [operationID,setOperationID]=useState<string|null>(null);const [confirmReinstall,setConfirmReinstall]=useState(false);
+ const action=useMutation({mutationFn:(name:string)=>apiRequest<OperationAccepted>(`/api/v1/instances/${id}/${name}`,{method:"POST",headers:{"X-CSRF-Token":csrf,"Idempotency-Key":crypto.randomUUID()},body:name==="reinstall"?JSON.stringify({image_id:item.data?.image_id}):undefined}),onSuccess:(data)=>setOperationID(data.operation_id)});
+ if(item.isPending)return <Skeleton label={t("common.loading")}/>;if(item.isError)return <ErrorState title={errorText(item.error,t)} retry={()=>void item.refetch()} retryLabel={t("common.retry")}/>;const value=item.data;const trafficTotal=(traffic.data?.items??[]).reduce((sum,row)=>sum+row.rx_bytes+row.tx_bytes,0);
+ return <section><button type="button" className="link-button" onClick={back}>{t("common.back")}</button><div className="card-heading"><PageTitle>{value.name}</PageTitle><StatusBadge status={value.observed_state} label={statusText(value.observed_state,t)}/></div>{(networks.isError||traffic.isError)&&<Alert tone="warning">{t("common.partialError")}</Alert>}<div className="detail-grid"><Card><h2>{t("instance.detail")}</h2><dl className="spec-list"><dt>{t("instance.desiredState")}</dt><dd>{statusText(value.desired_state,t)}</dd><dt>{t("instance.observedState")}</dt><dd>{statusText(value.observed_state,t)}</dd><dt>{t("catalog.cpu")}</dt><dd>{value.cpu_cores}</dd><dt>{t("catalog.memory")}</dt><dd>{value.memory_mb} MB</dd><dt>{t("catalog.disk")}</dt><dd>{value.disk_gb} GB</dd><dt>{t("instance.image")}</dt><dd>{value.image_id??"—"}</dd><dt>{t("instance.expires")}</dt><dd>{dateTime(value.current_period_end,locale)}</dd><dt>{t("instance.lastSync")}</dt><dd>{dateTime(value.last_synced_at,locale)}</dd></dl></Card><Card><h2>{t("instance.network")}</h2>{networks.isPending?<Skeleton label={t("common.loading")}/>:networks.data?.items.length?<ul className="plain-list">{networks.data.items.map((network)=><li key={network.id}><span>{network.type}</span><code>{network.address}{network.prefix!==null?`/${network.prefix}`:""}</code></li>)}</ul>:<EmptyState title={t("instance.noNetwork")}/>}</Card><Card><h2>{t("instance.traffic")}</h2><p className="traffic-total">{formatBytes(trafficTotal,locale)}</p>{traffic.isPending?<Skeleton label={t("common.loading")}/>:traffic.data?.items.length?<div className="table-wrap"><table><thead><tr><th>{t("common.date")}</th><th>{t("instance.rx")}</th><th>{t("instance.tx")}</th></tr></thead><tbody>{traffic.data.items.map((row)=><tr key={`${row.period_start}-${row.source}`}><td>{dateTime(row.period_start,locale)}</td><td>{formatBytes(row.rx_bytes,locale)}</td><td>{formatBytes(row.tx_bytes,locale)}</td></tr>)}</tbody></table></div>:<EmptyState title={t("instance.noTraffic")}/>}</Card></div>
+ <Card><h2>{t("common.actions")}</h2>{action.isError&&<Alert tone="danger">{errorText(action.error,t)}</Alert>}<div className="button-row"><Button disabled={action.isPending||value.observed_state==="running"} onClick={()=>action.mutate("start")}>{t("instance.actions.start")}</Button><Button disabled={action.isPending||value.observed_state==="stopped"} onClick={()=>action.mutate("stop")}>{t("instance.actions.stop")}</Button><Button disabled={action.isPending||value.observed_state!=="running"} onClick={()=>action.mutate("restart")}>{t("instance.actions.restart")}</Button><button className="button button--danger" disabled={action.isPending} type="button" onClick={()=>setConfirmReinstall(true)}>{t("instance.actions.reinstall")}</button></div></Card>
+ {operationID&&<Card><h2>{t("instance.activity")}</h2><Alert tone="info">{t("instance.actionAccepted")}</Alert><OperationView id={operationID} t={t}/></Card>}{confirmReinstall&&<div className="dialog-backdrop"><section className="dialog" role="alertdialog" aria-modal="true"><h2>{t("instance.actions.reinstall")}</h2><Alert tone="danger">{t("instance.actions.reinstallWarning")}</Alert><div className="button-row"><button className="button button--danger" type="button" onClick={()=>{setConfirmReinstall(false);action.mutate("reinstall")}}>{t("instance.actions.confirmReinstall")}</button><button className="button button--secondary" type="button" onClick={()=>setConfirmReinstall(false)}>{t("common.cancel")}</button></div></section></div>}</section>
+}
+
+function OperationView({id,t}:{id:string;t:T}){const client=useQueryClient();const query=useQuery({queryKey:["operation",id],queryFn:()=>apiRequest<Operation>(`/api/v1/operations/${id}`),refetchInterval:(q)=>isTerminal(q.state.data?.status)?false:2000});useEffect(()=>{const stream=new EventSource("/api/v1/events",{withCredentials:true});stream.onmessage=()=>void client.invalidateQueries({queryKey:["operation",id]});return()=>stream.close()},[client,id]);if(query.isPending)return <Skeleton label={t("common.loading")}/>;if(query.isError)return <ErrorState title={errorText(query.error,t)} retry={()=>void query.refetch()} retryLabel={t("common.retry")}/>;return <OperationProgress operation={query.data} translate={(key)=>t(key as MessageKey)}/>}
+
+function Orders({locale,t}:{locale:Locale;t:T}){return <ListPage<Order> t={t} title={t("orders.title")} empty={t("orders.empty")} path="/api/v1/orders" queryKey="orders" render={(item)=><tr key={item.id}><td>{item.order_no}</td><td><StatusBadge status={item.status} label={statusText(item.status,t)}/></td><td>{t(`orders.kind.${item.kind}` as MessageKey)}</td><td>{money(item.total_minor,item.currency,locale)}</td></tr>} headers={[t("orders.number"),t("common.status"),t("orders.kind"),t("common.amount")]}/>}
+function Invoices({locale,t}:{locale:Locale;t:T}){return <ListPage<Invoice> t={t} title={t("invoices.title")} empty={t("invoices.empty")} path="/api/v1/invoices" queryKey="invoices" render={(item)=><tr key={item.id}><td>{item.invoice_no}</td><td><StatusBadge status={item.status} label={statusText(item.status,t)}/></td><td>{dateTime(item.due_at,locale)}</td><td>{money(item.amount_minor,item.currency,locale)}</td></tr>} headers={[t("invoices.number"),t("common.status"),t("invoices.due"),t("common.amount")]}/>}
+function WalletPage({locale,t}:{locale:Locale;t:T}){const query=useQuery({queryKey:["wallet"],queryFn:()=>apiRequest<Wallet>("/api/v1/wallet?currency=USD")});if(query.isPending)return <Skeleton label={t("common.loading")}/>;if(query.isError)return <ErrorState title={errorText(query.error,t)} retry={()=>void query.refetch()} retryLabel={t("common.retry")}/>;return <section><PageTitle>{t("wallet.title")}</PageTitle><Card><p>{t("wallet.available")}</p><p className="balance">{money(query.data.available_balance_minor,query.data.currency,locale)}</p></Card></section>}
+
+function Notifications({t,csrf}:{t:T;csrf:string}){const client=useQueryClient();const query=useQuery({queryKey:["notifications"],queryFn:()=>apiRequest<ItemList<Notification>>("/api/v1/notifications")});const mark=useMutation({mutationFn:(id:string)=>apiRequest<{read:boolean}>(`/api/v1/notifications/${id}/read`,{method:"PUT",headers:{"X-CSRF-Token":csrf},body:"{}"}),onSuccess:()=>void client.invalidateQueries({queryKey:["notifications"]})});if(query.isPending)return <Skeleton label={t("common.loading")}/>;if(query.isError)return <ErrorState title={errorText(query.error,t)} retry={()=>void query.refetch()} retryLabel={t("common.retry")}/>;return <section><PageTitle>{t("notifications.title")}</PageTitle>{query.data.items.length===0?<EmptyState title={t("notifications.empty")}/>:<div className="card-list">{query.data.items.map((item)=><Card key={item.id}><div className="card-heading"><div><h2>{t(item.title_key as MessageKey)}</h2><p>{t(item.message_key as MessageKey)}</p></div>{!item.read_at&&<Button disabled={mark.isPending} onClick={()=>mark.mutate(item.id)}>{t("notifications.markRead")}</Button>}</div></Card>)}</div>}</section>}
+
+function Tickets({locale,t,csrf}:{locale:Locale;t:T;csrf:string}){const client=useQueryClient();const query=useQuery({queryKey:["tickets"],queryFn:()=>apiRequest<ItemList<Ticket>>("/api/v1/tickets")});const [show,setShow]=useState(false),[selected,setSelected]=useState<string|null>(null),[subject,setSubject]=useState(""),[priority,setPriority]=useState("normal"),[message,setMessage]=useState("");const create=useMutation({mutationFn:()=>apiRequest<Ticket>("/api/v1/tickets",{method:"POST",headers:{"X-CSRF-Token":csrf},body:JSON.stringify({subject,priority,message})}),onSuccess:()=>{setShow(false);setSubject("");setMessage("");void client.invalidateQueries({queryKey:["tickets"]})}});if(selected)return <TicketDetail id={selected} locale={locale} t={t} csrf={csrf} back={()=>setSelected(null)}/>;if(query.isPending)return <Skeleton label={t("common.loading")}/>;if(query.isError)return <ErrorState title={errorText(query.error,t)} retry={()=>void query.refetch()} retryLabel={t("common.retry")}/>;return <section><div className="card-heading"><PageTitle>{t("tickets.title")}</PageTitle><Button onClick={()=>setShow(true)}>{t("tickets.new")}</Button></div>{query.data.items.length===0?<EmptyState title={t("tickets.empty")}/>:<div className="card-list">{query.data.items.map((item)=><Card key={item.id}><div className="card-heading"><div><h2>{item.subject}</h2><p>{item.ticket_no} · {dateTime(item.updated_at,locale)}</p></div><div><StatusBadge status={item.status} label={statusText(item.status,t)}/><Button onClick={()=>setSelected(item.id)}>{t("common.view")}</Button></div></div></Card>)}</div>}{show&&<div className="dialog-backdrop"><form className="dialog auth-form" onSubmit={(e)=>{e.preventDefault();create.mutate()}}><h2>{t("tickets.new")}</h2><label className="form-field">{t("tickets.subject")}<input className="form-input" minLength={3} maxLength={255} required value={subject} onChange={(e)=>setSubject(e.target.value)}/></label><label className="form-field">{t("tickets.priority")}<select className="form-input" value={priority} onChange={(e)=>setPriority(e.target.value)}><option value="low">{t("tickets.priority.low")}</option><option value="normal">{t("tickets.priority.normal")}</option><option value="high">{t("tickets.priority.high")}</option></select></label><label className="form-field">{t("tickets.message")}<textarea className="form-input textarea" required maxLength={10000} value={message} onChange={(e)=>setMessage(e.target.value)}/></label>{create.isError&&<Alert tone="danger">{errorText(create.error,t)}</Alert>}<div className="button-row"><Button type="submit" disabled={create.isPending}>{t("common.submit")}</Button><button className="button button--secondary" type="button" onClick={()=>setShow(false)}>{t("common.cancel")}</button></div></form></div>}</section>}
+
+function TicketDetail({id,locale,t,csrf,back}:{id:string;locale:Locale;t:T;csrf:string;back:()=>void}){const client=useQueryClient();const query=useQuery({queryKey:["ticket",id],queryFn:()=>apiRequest<Ticket>(`/api/v1/tickets/${id}`)});const [message,setMessage]=useState("");const reply=useMutation({mutationFn:()=>apiRequest(`/api/v1/tickets/${id}/messages`,{method:"POST",headers:{"X-CSRF-Token":csrf},body:JSON.stringify({message})}),onSuccess:()=>{setMessage("");void client.invalidateQueries({queryKey:["ticket",id]})}});if(query.isPending)return <Skeleton label={t("common.loading")}/>;if(query.isError)return <ErrorState title={errorText(query.error,t)} retry={()=>void query.refetch()} retryLabel={t("common.retry")}/>;return <section><button className="link-button" type="button" onClick={back}>{t("common.back")}</button><div className="card-heading"><div><PageTitle>{query.data.subject}</PageTitle><p>{query.data.ticket_no} · {dateTime(query.data.updated_at,locale)}</p></div><StatusBadge status={query.data.status} label={statusText(query.data.status,t)}/></div><Card><h2>{t("tickets.conversation")}</h2>{query.data.messages?.length?<div className="message-list">{query.data.messages.map((item)=><article key={item.id}><strong>{t(`tickets.sender.${item.sender_type}` as MessageKey)}</strong><p>{item.message}</p><time>{dateTime(item.created_at,locale)}</time></article>)}</div>:<EmptyState title={t("tickets.noMessages")}/>}<form className="auth-form" onSubmit={(e)=>{e.preventDefault();reply.mutate()}}><label className="form-field">{t("tickets.reply")}<textarea className="form-input textarea" required maxLength={10000} value={message} onChange={(e)=>setMessage(e.target.value)}/></label>{reply.isError&&<Alert tone="danger">{errorText(reply.error,t)}</Alert>}<Button type="submit" disabled={reply.isPending}>{t("common.submit")}</Button></form></Card></section>}
+
+function Account({principal,locale,t}:{principal:UserPrincipal;locale:Locale;t:T}){return <section><PageTitle>{t("account.title")}</PageTitle><Card><dl className="spec-list"><dt>{t("account.email")}</dt><dd>{principal.email}</dd><dt>{t("account.locale")}</dt><dd>{locale}</dd><dt>{t("account.timezone")}</dt><dd>{principal.timezone}</dd></dl><Alert tone="info">{t("account.session")}</Alert></Card></section>}
+
+function ListPage<D>({t,title,empty,path,queryKey,render,headers}:{t:T;title:string;empty:string;path:string;queryKey:string;render:(item:D)=>ReactNode;headers:string[]}){const query=useQuery({queryKey:[queryKey],queryFn:()=>apiRequest<ItemList<D>>(path)});if(query.isPending)return <Skeleton label={t("common.loading")}/>;if(query.isError)return <ErrorState title={errorText(query.error,t)} retry={()=>void query.refetch()} retryLabel={t("common.retry")}/>;return <section><PageTitle>{title}</PageTitle>{query.data.items.length===0?<EmptyState title={empty}/>:<div className="table-wrap"><table><thead><tr>{headers.map((header)=><th key={header}>{header}</th>)}</tr></thead><tbody>{query.data.items.map(render)}</tbody></table></div>}</section>}
+function Logout({csrf,t}:{csrf:string;t:T}){const client=useQueryClient();const mutation=useMutation({mutationFn:()=>apiRequest<{logged_out:boolean}>("/api/v1/auth/logout",{method:"POST",headers:{"X-CSRF-Token":csrf},body:"{}"}),onSuccess:()=>{client.clear();location.hash="dashboard"}});return <button type="button" className="button button--secondary" disabled={mutation.isPending} onClick={()=>mutation.mutate()}>{t("auth.logout")}</button>}
+function LanguageSelect({locale,setLocale,t}:{locale:Locale;setLocale:(locale:Locale)=>void;t:T}){return <label><span className="sr-only">{t("common.language")}</span><select className="locale-select" value={locale} onChange={(e)=>setLocale(e.target.value as Locale)}><option value="zh-CN">{t("common.locale.zh-CN")}</option><option value="en-US">{t("common.locale.en-US")}</option></select></label>}
+function Metric({label,value,onClick}:{label:string;value:string;onClick?:()=>void}){const content=<><span>{label}</span><strong>{value}</strong></>;return onClick?<button type="button" className="metric" onClick={onClick}>{content}</button>:<div className="metric">{content}</div>}
+function PageTitle({children}:{children:ReactNode}){return <h1 className="page-title">{children}</h1>}
+function useHashPage():[Page,(page:Page)=>void]{const parse=():Page=>{const value=location.hash.replace("#","") as Page;return ["dashboard","products","instances","orders","invoices","wallet","notifications","tickets","account"].includes(value)?value:"dashboard"};const [page,setPage]=useState<Page>(parse);useEffect(()=>{const listener=()=>setPage(parse());addEventListener("hashchange",listener);return()=>removeEventListener("hashchange",listener)},[]);return[page,(next)=>{location.hash=next;setPage(next)}]}
+function localized(value:Record<string,string>,locale:Locale){return value[locale]??value["en-US"]??Object.values(value)[0]??""}
+function money(value:number,currency:string,locale:Locale){return new Intl.NumberFormat(locale,{style:"currency",currency}).format(value/100)}
+function dateTime(value:string|null,locale:Locale){return value?new Intl.DateTimeFormat(locale,{dateStyle:"medium",timeStyle:"short"}).format(new Date(value)):"—"}
+function formatBytes(value:number,locale:Locale){return new Intl.NumberFormat(locale,{style:"unit",unit:"gigabyte",maximumFractionDigits:2}).format(value/1_073_741_824)}
+function statusText(status:string,t:T){const key=`status.${status}` as MessageKey;return t(key)}
+function errorText(error:unknown,t:T){if(error instanceof ApiRequestError)return t(error.messageKey as MessageKey);return t("errors.internal")}
+function isTerminal(status:Operation["status"]|undefined){return status==="succeeded"||status==="failed"||status==="cancelled"}

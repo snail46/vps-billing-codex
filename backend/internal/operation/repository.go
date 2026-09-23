@@ -51,6 +51,9 @@ func (r *PostgresRepository) Create(ctx context.Context, request CreateRequest) 
 		if isUniqueViolation(err) {
 			_ = tx.Rollback(ctx)
 			existing, lookupErr := r.queries.GetOperationByIdempotency(ctx, request.IdempotencyKey)
+			if errors.Is(lookupErr, pgx.ErrNoRows) {
+				return Operation{}, ErrIdempotencyConflict
+			}
 			if lookupErr != nil {
 				return Operation{}, lookupErr
 			}

@@ -136,6 +136,42 @@ func TestOperationQueueRetryAndRecovery(t *testing.T) {
 	}
 }
 
+func TestInstanceAllowsOnlyOneActiveAction(t *testing.T) {
+	databaseURL := os.Getenv("TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("TEST_DATABASE_URL is required")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	if err := migrations.Run(ctx, databaseURL); err != nil {
+		t.Fatal(err)
+	}
+	pool, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	service := NewService(NewPostgresRepository(pool))
+	instanceID := uuid.New()
+	base := CreateRequest{Type: "restart", ResourceType: "instance", ResourceID: instanceID, IdempotencyKey: "restart:" + uuid.NewString(), TraceID: uuid.NewString(), MaxRetries: 3, Steps: []StepDefinition{{Key: "validate", Order: 1}}}
+	first, err := service.Create(ctx, base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	conflict := base
+	conflict.Type = "stop"
+	conflict.IdempotencyKey = "stop:" + uuid.NewString()
+	if _, err := service.Create(ctx, conflict); !errors.Is(err, ErrIdempotencyConflict) {
+		t.Fatalf("concurrent action error=%v", err)
+	}
+	if err := NewPostgresRepository(pool).Succeed(ctx, first.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Create(ctx, conflict); err != nil {
+		t.Fatalf("action after completion error=%v", err)
+	}
+}
+
 func stringValue(value *string) string {
 	if value == nil {
 		return "<nil>"

@@ -481,6 +481,12 @@ CREATE INDEX ix_operations_user
 ON operations(user_id, created_at DESC)
 WHERE user_id IS NOT NULL;
 
+CREATE UNIQUE INDEX ux_operations_active_instance_action
+ON operations(resource_id)
+WHERE resource_type = 'instance'
+  AND type IN ('start', 'stop', 'restart', 'reinstall')
+  AND status IN ('queued', 'running', 'waiting_provider', 'waiting_resource', 'verifying', 'retrying');
+
 CREATE TABLE operation_steps (
   id uuid PRIMARY KEY,
   operation_id uuid NOT NULL REFERENCES operations(id),
@@ -555,8 +561,8 @@ CREATE TABLE tickets (
   ticket_no varchar(64) NOT NULL UNIQUE,
   user_id uuid NOT NULL REFERENCES users(id),
   subject varchar(255) NOT NULL,
-  status varchar(64) NOT NULL,
-  priority varchar(32) NOT NULL,
+  status varchar(64) NOT NULL CHECK (status IN ('open', 'waiting_user', 'waiting_support', 'resolved', 'closed')),
+  priority varchar(32) NOT NULL CHECK (priority IN ('low', 'normal', 'high')),
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
   closed_at timestamptz

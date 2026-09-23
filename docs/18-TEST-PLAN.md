@@ -13,3 +13,5 @@ Operation Integration：并发相同 idempotency key 只创建一个 Operation�
 Provision Integration：paid purchase event→pending Subscription/Instance/Operation→deterministic Scheduler Reservation→MockProvider Create/Get→running Instance→committed capacity→active Subscription→fulfilled Order→ready Notification；重复 Trigger 只保留一条 Operation。Compose Gate 必须通过真实 HTTP 支付回调并轮询授权 Operation API 看到 11 个步骤和 succeeded。
 
 LXD Direct Provider Contract：使用协议级 HTTP fixture 验证 project/cluster target、异步 Operation wait、确定性 Create replay、动作/重装/删除 replay、同键跨实例冲突、状态/IP/流量映射、超时与 HTTP 错误标准化，以及 ResetPassword/NAT 的 `UNSUPPORTED_OPERATION`。测试构造器可使用本地 HTTP；数据库 Factory 永远要求 HTTPS+mTLS。
+
+User Portal：验证中英文 key 集完全一致；前端 lint/typecheck/test/build；浏览器检查 desktop/mobile、loaded/error/empty、危险确认和语言切换。Compose 使用真实会话验证 Instance ownership 查询、network/traffic、notifications、Ticket 创建/回复，以及 Restart `202 → Operation → Worker → MockProvider → verify → succeeded`。数据库测试验证同一 Instance 只有一个 active action。

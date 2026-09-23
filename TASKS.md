@@ -65,13 +65,13 @@
 **Gate:** 替换 MockProvider 不修改 Business Core。
 
 ## Phase 8 — User Web
-- [ ] dashboard/catalog/checkout
-- [ ] instances/detail/network/traffic
-- [ ] operation progress
-- [ ] orders/invoices/wallet
-- [ ] notifications/tickets/account
-- [ ] all page states
-- [ ] bilingual
+- [x] dashboard/catalog/checkout
+- [x] instances/detail/network/traffic
+- [x] operation progress
+- [x] orders/invoices/wallet
+- [x] notifications/tickets/account
+- [x] all page states
+- [x] bilingual
 
 ## Phase 9 — Admin Web
 - [ ] health dashboard

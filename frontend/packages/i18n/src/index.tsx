@@ -1,5 +1,5 @@
 import i18next, { type i18n as I18nInstance } from "i18next";
-import type { PropsWithChildren } from "react";
+import { useCallback, type PropsWithChildren } from "react";
 import { I18nextProvider, initReactI18next, useTranslation } from "react-i18next";
 
 import { messages, type Locale, type MessageKey } from "./messages";
@@ -38,11 +38,12 @@ export function I18nProvider({ children }: PropsWithChildren) {
 export function useI18n(): I18nValue {
   const { i18n: activeInstance, t } = useTranslation();
   const locale: Locale = activeInstance.resolvedLanguage === "en-US" ? "en-US" : "zh-CN";
+  const setLocale = useCallback((nextLocale: Locale) => {
+    void activeInstance.changeLanguage(nextLocale);
+  }, [activeInstance]);
   return {
     locale,
-    setLocale: (nextLocale) => {
-      void activeInstance.changeLanguage(nextLocale);
-    },
+    setLocale,
     t: (key) => t(key),
   };
 }

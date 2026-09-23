@@ -275,12 +275,52 @@ paths:
       responses:
         "200": {description: Instance}
         "404": {description: Not found}
+  /instances/{id}/networks:
+    get:
+      summary: List instance network addresses owned by the current user
+      operationId: listInstanceNetworks
+      parameters: [{$ref: "#/components/parameters/Id"}]
+      responses:
+        "200": {description: Networks}
+        "404": {$ref: "#/components/responses/NotFound"}
+  /instances/{id}/traffic:
+    get:
+      summary: List recent traffic samples for an owned instance
+      operationId: listInstanceTraffic
+      parameters: [{$ref: "#/components/parameters/Id"}]
+      responses:
+        "200": {description: Traffic samples}
+        "404": {$ref: "#/components/responses/NotFound"}
+  /instances/{id}/start:
+    post:
+      summary: Queue an instance start
+      operationId: startInstance
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/CSRFToken"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "202": {description: Accepted, content: {application/json: {schema: {$ref: "#/components/schemas/OperationAccepted"}}}}
+        "409": {$ref: "#/components/responses/Conflict"}
+  /instances/{id}/stop:
+    post:
+      summary: Queue an instance stop
+      operationId: stopInstance
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/CSRFToken"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "202": {description: Accepted, content: {application/json: {schema: {$ref: "#/components/schemas/OperationAccepted"}}}}
+        "409": {$ref: "#/components/responses/Conflict"}
   /instances/{id}/restart:
     post:
       summary: Queue an instance restart
       operationId: restartInstance
       parameters:
         - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/CSRFToken"
+        - $ref: "#/components/parameters/IdempotencyKey"
       responses:
         "202":
           description: Accepted
@@ -294,6 +334,8 @@ paths:
       operationId: reinstallInstance
       parameters:
         - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/CSRFToken"
+        - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
         required: true
         content:
@@ -309,6 +351,74 @@ paths:
           content:
             application/json:
               schema: {$ref: "#/components/schemas/OperationAccepted"}
+  /notifications:
+    get:
+      summary: List current user notifications
+      operationId: listNotifications
+      responses:
+        "200": {description: Notifications}
+  /notifications/{id}/read:
+    put:
+      summary: Mark an owned notification read
+      operationId: markNotificationRead
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/CSRFToken"
+      responses:
+        "200": {description: Marked read}
+        "404": {$ref: "#/components/responses/NotFound"}
+  /tickets:
+    get:
+      summary: List current user support tickets
+      operationId: listTickets
+      responses:
+        "200": {description: Tickets}
+    post:
+      summary: Create a support ticket with its first message
+      operationId: createTicket
+      parameters: [{$ref: "#/components/parameters/CSRFToken"}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [subject, priority, message]
+              additionalProperties: false
+              properties:
+                subject: {type: string, minLength: 3, maxLength: 255}
+                priority: {type: string, enum: [low, normal, high]}
+                message: {type: string, minLength: 1, maxLength: 10000}
+      responses:
+        "201": {description: Ticket created}
+        "422": {$ref: "#/components/responses/ValidationFailure"}
+  /tickets/{id}:
+    get:
+      summary: Get an owned support ticket and messages
+      operationId: getTicket
+      parameters: [{$ref: "#/components/parameters/Id"}]
+      responses:
+        "200": {description: Ticket detail}
+        "404": {$ref: "#/components/responses/NotFound"}
+  /tickets/{id}/messages:
+    post:
+      summary: Add a user message to an owned support ticket
+      operationId: addTicketMessage
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/CSRFToken"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [message]
+              additionalProperties: false
+              properties: {message: {type: string, minLength: 1, maxLength: 10000}}
+      responses:
+        "201": {description: Message created}
+        "404": {$ref: "#/components/responses/NotFound"}
   /operations/{id}:
     get:
       summary: Get an operation

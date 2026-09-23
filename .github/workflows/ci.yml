@@ -148,6 +148,27 @@ jobs:
           curl --fail-with-body --show-error --cookie /tmp/user.cookies "http://localhost:8080/api/v1/operations/$operation_id" | jq -e '.data.status == "succeeded" and .data.progress == 100 and (.data.steps | length) == 11'
           ready_notification_count=$(docker compose -f deploy/docker-compose.yml exec -T postgres psql -U vps_billing -d vps_billing -tAc "SELECT count(*) FROM notifications WHERE user_id='$user_id' AND type='instance_ready'")
           test "$ready_notification_count" = "1"
+          stage="verify user portal instance resources"
+          instances=$(curl --fail-with-body --show-error --cookie /tmp/user.cookies http://localhost:8080/api/v1/instances)
+          instance_id=$(echo "$instances" | jq -er '.data.items | if length == 1 and .[0].observed_state == "running" then .[0].id else error("instance not running") end')
+          curl --fail-with-body --show-error --cookie /tmp/user.cookies "http://localhost:8080/api/v1/instances/$instance_id" | jq -e '.data.observed_state == "running"'
+          curl --fail-with-body --show-error --cookie /tmp/user.cookies "http://localhost:8080/api/v1/instances/$instance_id/networks" | jq -e '.data.items | type == "array"'
+          curl --fail-with-body --show-error --cookie /tmp/user.cookies "http://localhost:8080/api/v1/instances/$instance_id/traffic" | jq -e '.data.items | type == "array"'
+          curl --fail-with-body --show-error --cookie /tmp/user.cookies http://localhost:8080/api/v1/notifications | jq -e '.data.items | length == 1'
+          stage="create and reply to support ticket"
+          ticket=$(curl --fail-with-body --show-error --cookie /tmp/user.cookies -H 'Content-Type: application/json' -H "X-CSRF-Token: $csrf" -d '{"subject":"CI portal issue","priority":"normal","message":"Initial details"}' http://localhost:8080/api/v1/tickets)
+          ticket_id=$(echo "$ticket" | jq -er '.data.id')
+          curl --fail-with-body --show-error --cookie /tmp/user.cookies "http://localhost:8080/api/v1/tickets/$ticket_id" | jq -e '.data.messages | length == 1'
+          curl --fail-with-body --show-error --cookie /tmp/user.cookies -H 'Content-Type: application/json' -H "X-CSRF-Token: $csrf" -d '{"message":"Additional details"}' "http://localhost:8080/api/v1/tickets/$ticket_id/messages" | jq -e '.data.sender_type == "user"'
+          stage="restart instance through recoverable operation"
+          restart=$(curl --fail-with-body --show-error --cookie /tmp/user.cookies -H 'Content-Type: application/json' -H "X-CSRF-Token: $csrf" -H 'Idempotency-Key: ci-instance-restart-1' -d '{}' "http://localhost:8080/api/v1/instances/$instance_id/restart")
+          restart_operation_id=$(echo "$restart" | jq -er '.data.operation_id')
+          for wait_attempt in $(seq 1 20); do
+            restart_status=$(curl --fail-with-body --silent --show-error --cookie /tmp/user.cookies "http://localhost:8080/api/v1/operations/$restart_operation_id" | jq -r '.data.status')
+            test "$restart_status" = "succeeded" && break
+            sleep 1
+          done
+          test "$restart_status" = "succeeded"
           stage="seed active subscription"
           docker compose -f deploy/docker-compose.yml exec -T postgres \
             psql -U vps_billing -d vps_billing -v ON_ERROR_STOP=1 -c \

@@ -9,6 +9,7 @@ import (
 	"vps-billing/backend/internal/infrastructure"
 	"vps-billing/backend/internal/infrastructure/postgres"
 	"vps-billing/backend/internal/infrastructure/rediscache"
+	"vps-billing/backend/internal/instanceaction"
 	"vps-billing/backend/internal/operation"
 	"vps-billing/backend/internal/outbox"
 	platformruntime "vps-billing/backend/internal/platform/runtime"
@@ -58,6 +59,13 @@ func main() {
 	if err := workflowRegistry.Register("provision", provision.NewWorkflow(provisionRepository, infrastructure.NewScheduler(infrastructureRepository), providerRegistry)); err != nil {
 		logger.Error("provision workflow registration failed", "error", err)
 		os.Exit(1)
+	}
+	instanceActionWorkflow := instanceaction.NewWorkflow(instanceaction.NewRepository(postgresClient.Pool()), providerRegistry)
+	for _, action := range []string{"start", "stop", "restart", "reinstall"} {
+		if err := workflowRegistry.Register(action, instanceActionWorkflow); err != nil {
+			logger.Error("instance action workflow registration failed", "action", action, "error", err)
+			os.Exit(1)
+		}
 	}
 	consumerName, hostnameErr := os.Hostname()
 	if hostnameErr != nil || consumerName == "" {
