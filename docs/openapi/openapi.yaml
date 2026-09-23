@@ -133,16 +133,20 @@ paths:
       security: []
       operationId: listProducts
       responses:
-        "200": {description: Products}
+        "200": {description: Products and active plans}
   /orders:
     get:
       summary: List user orders
       operationId: listOrders
       responses:
         "200": {description: Orders}
+        "401": {$ref: "#/components/responses/Unauthenticated"}
     post:
       summary: Create an order
       operationId: createOrder
+      parameters:
+        - $ref: "#/components/parameters/CSRFToken"
+        - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
         required: true
         content:
@@ -154,8 +158,50 @@ paths:
                 plan_id: {type: string, format: uuid}
                 quantity: {type: integer, minimum: 1}
       responses:
-        "201": {description: Created}
-        "422": {description: Validation failure}
+        "201": {description: "Order, invoice, and pending payment created"}
+        "401": {$ref: "#/components/responses/Unauthenticated"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "422": {$ref: "#/components/responses/ValidationFailure"}
+  /invoices:
+    get:
+      summary: List user invoices
+      operationId: listInvoices
+      responses:
+        "200": {description: Invoices}
+        "401": {$ref: "#/components/responses/Unauthenticated"}
+  /wallet:
+    get:
+      summary: Get or initialize a zero-balance wallet
+      operationId: getWallet
+      parameters:
+        - name: currency
+          in: query
+          schema: {type: string, minLength: 3, maxLength: 3, default: USD}
+      responses:
+        "200": {description: Wallet}
+        "401": {$ref: "#/components/responses/Unauthenticated"}
+        "422": {$ref: "#/components/responses/ValidationFailure"}
+  /webhooks/payments/fake:
+    post:
+      summary: Receive a signed fake payment callback
+      operationId: fakePaymentWebhook
+      security: []
+      parameters:
+        - name: X-Fake-Signature
+          in: header
+          required: true
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/PaymentWebhook"}
+      responses:
+        "200": {description: Processed or already processed idempotently}
+        "401": {$ref: "#/components/responses/Unauthenticated"}
+        "404": {description: Payment not found}
+        "409": {description: Payment state conflict}
+        "422": {$ref: "#/components/responses/ValidationFailure"}
   /instances:
     get:
       summary: List user instances
@@ -246,6 +292,11 @@ components:
       in: header
       required: true
       schema: {type: string}
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema: {type: string, minLength: 8, maxLength: 255}
   requestBodies:
     Login:
       required: true
@@ -327,6 +378,17 @@ components:
             code: {type: string}
             message_key: {type: string}
             details: {type: object, additionalProperties: true}
+    PaymentWebhook:
+      type: object
+      additionalProperties: false
+      required: [event_id, payment_id, external_payment_id, status, amount_minor, currency]
+      properties:
+        event_id: {type: string, minLength: 1, maxLength: 255}
+        payment_id: {type: string, format: uuid}
+        external_payment_id: {type: string, minLength: 1, maxLength: 255}
+        status: {type: string, enum: [succeeded]}
+        amount_minor: {type: integer, format: int64, minimum: 0}
+        currency: {type: string, minLength: 3, maxLength: 3}
     OperationAccepted:
       type: object
       required: [success, data, request_id]

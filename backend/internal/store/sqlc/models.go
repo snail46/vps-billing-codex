@@ -230,17 +230,18 @@ type OperationStep struct {
 }
 
 type Order struct {
-	ID            uuid.UUID          `json:"id"`
-	OrderNo       string             `json:"order_no"`
-	UserID        uuid.UUID          `json:"user_id"`
-	Status        string             `json:"status"`
-	SubtotalMinor int64              `json:"subtotal_minor"`
-	DiscountMinor int64              `json:"discount_minor"`
-	TotalMinor    int64              `json:"total_minor"`
-	Currency      string             `json:"currency"`
-	PaidAt        pgtype.Timestamptz `json:"paid_at"`
-	CreatedAt     pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
+	ID             uuid.UUID          `json:"id"`
+	OrderNo        string             `json:"order_no"`
+	UserID         uuid.UUID          `json:"user_id"`
+	Status         string             `json:"status"`
+	SubtotalMinor  int64              `json:"subtotal_minor"`
+	DiscountMinor  int64              `json:"discount_minor"`
+	TotalMinor     int64              `json:"total_minor"`
+	Currency       string             `json:"currency"`
+	PaidAt         pgtype.Timestamptz `json:"paid_at"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+	IdempotencyKey pgtype.Text        `json:"idempotency_key"`
 }
 
 type OrderItem struct {
@@ -283,6 +284,15 @@ type Payment struct {
 	PaidAt           pgtype.Timestamptz `json:"paid_at"`
 	CreatedAt        pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
+}
+
+type PaymentWebhookReceipt struct {
+	ID              uuid.UUID          `json:"id"`
+	Gateway         string             `json:"gateway"`
+	ExternalEventID string             `json:"external_event_id"`
+	Payload         []byte             `json:"payload"`
+	ReceivedAt      pgtype.Timestamptz `json:"received_at"`
+	ProcessedAt     pgtype.Timestamptz `json:"processed_at"`
 }
 
 type Permission struct {

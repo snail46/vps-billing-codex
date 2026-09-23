@@ -21,3 +21,5 @@ ADMIN_BOOTSTRAP_PASSWORD='replace-with-a-strong-secret' /app/bootstrap-admin --e
 ```
 
 命令在同一数据库事务中创建管理员、分配 `super_admin` 并记录 Audit；不会生成默认账户或硬编码 ID。
+
+Fake Payment 仅用于 V1 验收和非生产测试，回调使用 `FAKE_PAYMENT_WEBHOOK_SECRET` 的 HMAC-SHA256 签名。部署必须使用独立的至少 32 字符密钥。生产接入真实网关时必须新增独立 Adapter、验签与 Contract Test，不得复用 Fake secret。

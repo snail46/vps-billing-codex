@@ -15,6 +15,7 @@ func TestLoad(t *testing.T) {
 	t.Setenv("USER_CSRF_SECRET", "user-csrf-secret-at-least-32-chars")
 	t.Setenv("ADMIN_CSRF_SECRET", "admin-csrf-secret-at-least-32-chars")
 	t.Setenv("ADMIN_TOTP_ENCRYPTION_KEY", "admin-totp-encryption-at-least-32-char")
+	t.Setenv("FAKE_PAYMENT_WEBHOOK_SECRET", "fake-payment-webhook-secret-32-chars")
 
 	config, err := Load()
 	if err != nil {
@@ -28,7 +29,7 @@ func TestLoad(t *testing.T) {
 func TestLoadRejectsReusedSecrets(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgres://database")
 	t.Setenv("REDIS_URL", "redis://cache")
-	for _, key := range []string{"USER_SESSION_SECRET", "ADMIN_SESSION_SECRET", "USER_CSRF_SECRET", "ADMIN_CSRF_SECRET", "ADMIN_TOTP_ENCRYPTION_KEY"} {
+	for _, key := range []string{"USER_SESSION_SECRET", "ADMIN_SESSION_SECRET", "USER_CSRF_SECRET", "ADMIN_CSRF_SECRET", "ADMIN_TOTP_ENCRYPTION_KEY", "FAKE_PAYMENT_WEBHOOK_SECRET"} {
 		t.Setenv(key, "same-secret-value-that-is-at-least-32-characters")
 	}
 	_, err := Load()
@@ -45,6 +46,7 @@ func TestLoadRequiresDependencies(t *testing.T) {
 	t.Setenv("USER_CSRF_SECRET", "")
 	t.Setenv("ADMIN_CSRF_SECRET", "")
 	t.Setenv("ADMIN_TOTP_ENCRYPTION_KEY", "")
+	t.Setenv("FAKE_PAYMENT_WEBHOOK_SECRET", "")
 
 	_, err := Load()
 	if !errors.Is(err, ErrMissingEnvironment) {

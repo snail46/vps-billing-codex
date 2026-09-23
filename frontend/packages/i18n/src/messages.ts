@@ -34,6 +34,13 @@ export const messages = {
     ,"errors.totpInvalid": "双重验证码无效"
     ,"errors.internal": "服务暂时无法完成请求"
     ,"errors.originDenied": "请求来源不受信任"
+    ,"errors.planNotFound": "套餐不存在或已下架"
+    ,"errors.quantityInvalid": "购买数量无效"
+    ,"errors.idempotencyInvalid": "幂等键无效"
+    ,"errors.paymentNotFound": "支付记录不存在"
+    ,"errors.paymentMismatch": "支付金额或币种不匹配"
+    ,"errors.paymentStateInvalid": "当前支付状态不允许此操作"
+    ,"errors.webhookSignatureInvalid": "支付回调签名无效"
   },
   "en-US": {
     "common.language": "Language",
@@ -70,6 +77,13 @@ export const messages = {
     ,"errors.totpInvalid": "The two-factor authentication code is invalid"
     ,"errors.internal": "The service could not complete the request"
     ,"errors.originDenied": "The request origin is not trusted"
+    ,"errors.planNotFound": "The plan does not exist or is unavailable"
+    ,"errors.quantityInvalid": "The purchase quantity is invalid"
+    ,"errors.idempotencyInvalid": "The idempotency key is invalid"
+    ,"errors.paymentNotFound": "The payment was not found"
+    ,"errors.paymentMismatch": "The payment amount or currency does not match"
+    ,"errors.paymentStateInvalid": "The payment state does not allow this action"
+    ,"errors.webhookSignatureInvalid": "The payment webhook signature is invalid"
   }
 } as const;
 

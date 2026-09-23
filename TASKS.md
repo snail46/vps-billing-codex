@@ -20,13 +20,13 @@
 - [x] zh-CN/en-US
 
 ## Phase 2 — Commerce / Finance
-- [ ] products/plans
-- [ ] orders/order snapshots
-- [ ] invoices/payments
-- [ ] wallets/ledger
-- [ ] fake payment provider
-- [ ] transactional outbox
-- [ ] duplicate webhook tests
+- [x] products/plans
+- [x] orders/order snapshots
+- [x] invoices/payments
+- [x] wallets/ledger
+- [x] fake payment provider
+- [x] transactional outbox
+- [x] duplicate webhook tests
 **Gate:** 同一支付回调重复 100 次只入账一次。
 
 ## Phase 3 — Subscription

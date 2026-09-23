@@ -3,22 +3,44 @@ package worker
 import (
 	"context"
 	"log/slog"
+	"time"
 )
 
-type Worker struct {
-	logger *slog.Logger
+type Processor interface {
+	ProcessBatch(context.Context) (int, error)
 }
 
-func New(logger *slog.Logger) *Worker {
+type Worker struct {
+	logger     *slog.Logger
+	processors []Processor
+}
+
+func New(logger *slog.Logger, processors ...Processor) *Worker {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Worker{logger: logger}
+	return &Worker{logger: logger, processors: processors}
 }
 
 func (w *Worker) Run(ctx context.Context) error {
 	w.logger.Info("worker started")
-	<-ctx.Done()
-	w.logger.Info("worker stopped")
-	return nil
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+	for {
+		for _, processor := range w.processors {
+			count, err := processor.ProcessBatch(ctx)
+			if err != nil && ctx.Err() == nil {
+				w.logger.Error("worker processor failed", "error", err)
+			}
+			if count > 0 {
+				w.logger.Info("worker batch processed", "count", count)
+			}
+		}
+		select {
+		case <-ctx.Done():
+			w.logger.Info("worker stopped")
+			return nil
+		case <-ticker.C:
+		}
+	}
 }

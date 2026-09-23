@@ -171,6 +171,7 @@ CREATE TABLE orders (
   discount_minor bigint NOT NULL DEFAULT 0,
   total_minor bigint NOT NULL,
   currency varchar(3) NOT NULL,
+  idempotency_key varchar(255),
   paid_at timestamptz,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
@@ -209,6 +210,20 @@ CREATE UNIQUE INDEX ux_payments_gateway_external
 ON payments(gateway, gateway_payment_id)
 WHERE gateway_payment_id IS NOT NULL;
 
+CREATE UNIQUE INDEX ux_orders_user_idempotency
+ON orders(user_id, idempotency_key)
+WHERE idempotency_key IS NOT NULL;
+
+CREATE TABLE payment_webhook_receipts (
+  id uuid PRIMARY KEY,
+  gateway varchar(64) NOT NULL,
+  external_event_id varchar(255) NOT NULL,
+  payload jsonb NOT NULL,
+  received_at timestamptz NOT NULL DEFAULT now(),
+  processed_at timestamptz,
+  UNIQUE(gateway, external_event_id)
+);
+
 CREATE TABLE wallets (
   id uuid PRIMARY KEY,
   user_id uuid NOT NULL REFERENCES users(id),
@@ -238,6 +253,24 @@ CREATE TABLE ledger_entries (
   currency varchar(3) NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now()
 );
+
+CREATE UNIQUE INDEX ux_ledger_transaction_reference
+ON ledger_transactions(type, reference_type, reference_id)
+WHERE reference_type IS NOT NULL AND reference_id IS NOT NULL;
+
+CREATE FUNCTION reject_ledger_mutation() RETURNS trigger AS $$
+BEGIN
+  RAISE EXCEPTION 'ledger history is immutable';
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER ledger_transactions_immutable
+BEFORE UPDATE OR DELETE ON ledger_transactions
+FOR EACH ROW EXECUTE FUNCTION reject_ledger_mutation();
+
+CREATE TRIGGER ledger_entries_immutable
+BEFORE UPDATE OR DELETE ON ledger_entries
+FOR EACH ROW EXECUTE FUNCTION reject_ledger_mutation();
 
 CREATE TABLE subscriptions (
   id uuid PRIMARY KEY,
@@ -273,6 +306,8 @@ CREATE TABLE invoices (
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
+
+CREATE UNIQUE INDEX ux_invoices_order ON invoices(order_id) WHERE order_id IS NOT NULL;
 
 CREATE TABLE invoice_items (
   id uuid PRIMARY KEY,

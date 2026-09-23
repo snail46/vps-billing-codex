@@ -5,6 +5,28 @@ account:
   suspended: {severity: warning, zh_CN: "已暂停", en_US: "Suspended"}
   disabled: {severity: error, zh_CN: "已停用", en_US: "Disabled"}
 
+order:
+  pending: {severity: info, zh_CN: "待支付", en_US: "Pending payment"}
+  paid: {severity: success, zh_CN: "已支付", en_US: "Paid"}
+  fulfilling: {severity: info, zh_CN: "履约中", en_US: "Fulfilling"}
+  fulfilled: {severity: success, zh_CN: "已完成", en_US: "Fulfilled"}
+  cancelled: {severity: neutral, zh_CN: "已取消", en_US: "Cancelled"}
+  refund_pending: {severity: warning, zh_CN: "退款中", en_US: "Refund pending"}
+  refunded: {severity: neutral, zh_CN: "已退款", en_US: "Refunded"}
+
+payment:
+  pending: {severity: info, zh_CN: "待支付", en_US: "Pending"}
+  processing: {severity: info, zh_CN: "处理中", en_US: "Processing"}
+  succeeded: {severity: success, zh_CN: "支付成功", en_US: "Succeeded"}
+  failed: {severity: error, zh_CN: "支付失败", en_US: "Failed"}
+  partially_refunded: {severity: warning, zh_CN: "部分退款", en_US: "Partially refunded"}
+  refunded: {severity: neutral, zh_CN: "已退款", en_US: "Refunded"}
+
+invoice:
+  open: {severity: info, zh_CN: "待支付", en_US: "Open"}
+  paid: {severity: success, zh_CN: "已支付", en_US: "Paid"}
+  void: {severity: neutral, zh_CN: "已作废", en_US: "Void"}
+
 instance:
   running:
     severity: success

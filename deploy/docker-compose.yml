@@ -12,6 +12,8 @@ x-backend-environment: &backend-environment
   USER_CSRF_SECRET: "development-user-csrf-secret-change-before-production"
   ADMIN_CSRF_SECRET: "development-admin-csrf-secret-change-before-production"
   ADMIN_TOTP_ENCRYPTION_KEY: "development-admin-totp-key-change-before-production"
+  FAKE_PAYMENT_WEBHOOK_SECRET: "development-fake-payment-secret-change-before-production"
+  FAKE_PAYMENT_ENABLED: "true"
   COOKIE_SECURE: "false"
   LOG_LEVEL: info
 

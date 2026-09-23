@@ -12,21 +12,48 @@ import (
 
 type Querier interface {
 	AssignAdminRole(ctx context.Context, arg AssignAdminRoleParams) error
+	ClaimOutboxEvents(ctx context.Context, limit int32) ([]OutboxEvent, error)
+	CountLedgerTransactionsByReference(ctx context.Context, arg CountLedgerTransactionsByReferenceParams) (int64, error)
 	CreateAdmin(ctx context.Context, arg CreateAdminParams) (Admin, error)
 	CreateAdminSession(ctx context.Context, arg CreateAdminSessionParams) (AdminSession, error)
 	CreateAuditEvent(ctx context.Context, arg CreateAuditEventParams) error
+	CreateInvoice(ctx context.Context, arg CreateInvoiceParams) (Invoice, error)
+	CreateInvoiceItem(ctx context.Context, arg CreateInvoiceItemParams) error
+	CreateLedgerEntry(ctx context.Context, arg CreateLedgerEntryParams) error
+	CreateLedgerTransaction(ctx context.Context, arg CreateLedgerTransactionParams) error
+	CreateOrder(ctx context.Context, arg CreateOrderParams) (Order, error)
+	CreateOrderItem(ctx context.Context, arg CreateOrderItemParams) error
+	CreateOutboxEvent(ctx context.Context, arg CreateOutboxEventParams) error
+	CreatePayment(ctx context.Context, arg CreatePaymentParams) (Payment, error)
 	CreateUser(ctx context.Context, arg CreateUserParams) (User, error)
 	CreateUserSession(ctx context.Context, arg CreateUserSessionParams) (UserSession, error)
 	DatabasePing(ctx context.Context) (int32, error)
 	EnableAdminTOTP(ctx context.Context, adminID uuid.UUID) error
+	EnsureWallet(ctx context.Context, arg EnsureWalletParams) (Wallet, error)
 	GetActiveAdminSession(ctx context.Context, tokenHash []byte) (GetActiveAdminSessionRow, error)
 	GetActiveUserSession(ctx context.Context, tokenHash []byte) (GetActiveUserSessionRow, error)
 	GetAdminByEmail(ctx context.Context, email string) (Admin, error)
 	GetAdminByID(ctx context.Context, id uuid.UUID) (Admin, error)
 	GetAdminTOTPSecret(ctx context.Context, adminID uuid.UUID) (AdminTotpSecret, error)
+	GetOrderByUserIdempotency(ctx context.Context, arg GetOrderByUserIdempotencyParams) (Order, error)
+	GetPaymentByOrder(ctx context.Context, orderID uuid.UUID) (Payment, error)
+	GetPlanForOrder(ctx context.Context, id uuid.UUID) (GetPlanForOrderRow, error)
 	GetUserByEmail(ctx context.Context, email string) (User, error)
 	GetUserByID(ctx context.Context, id uuid.UUID) (User, error)
+	GetWalletByUserCurrency(ctx context.Context, arg GetWalletByUserCurrencyParams) (Wallet, error)
+	GetWebhookReceipt(ctx context.Context, arg GetWebhookReceiptParams) (PaymentWebhookReceipt, error)
+	InsertWebhookReceipt(ctx context.Context, arg InsertWebhookReceiptParams) (uuid.UUID, error)
+	ListActiveProductsAndPlans(ctx context.Context) ([]ListActiveProductsAndPlansRow, error)
 	ListAdminPermissions(ctx context.Context, adminID uuid.UUID) ([]string, error)
+	ListInvoicesByUser(ctx context.Context, userID uuid.UUID) ([]Invoice, error)
+	ListOrdersByUser(ctx context.Context, userID uuid.UUID) ([]ListOrdersByUserRow, error)
+	LockPaymentOrderInvoice(ctx context.Context, arg LockPaymentOrderInvoiceParams) (LockPaymentOrderInvoiceRow, error)
+	MarkInvoicePaid(ctx context.Context, id uuid.UUID) error
+	MarkOrderPaid(ctx context.Context, id uuid.UUID) error
+	MarkOutboxPublished(ctx context.Context, id uuid.UUID) error
+	MarkOutboxRetry(ctx context.Context, id uuid.UUID) error
+	MarkPaymentSucceeded(ctx context.Context, arg MarkPaymentSucceededParams) error
+	MarkWebhookProcessed(ctx context.Context, id uuid.UUID) error
 	RevokeAdminSession(ctx context.Context, tokenHash []byte) error
 	RevokeUserSession(ctx context.Context, tokenHash []byte) error
 	TouchAdminSession(ctx context.Context, id uuid.UUID) error
