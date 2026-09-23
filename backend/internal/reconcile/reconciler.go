@@ -163,11 +163,11 @@ type instanceCandidate struct {
 }
 
 func (p *Processor) reconcileInstances(ctx context.Context) (int, error) {
-	if _, err := p.pool.Exec(ctx, `UPDATE instances i SET desired_state='suspended',version=version+1,updated_at=now()
+	if _, err := p.pool.Exec(ctx, `UPDATE instances i SET desired_state='suspended',version=i.version+1,updated_at=now()
 		FROM subscriptions s WHERE s.id=i.subscription_id AND s.status='suspended' AND i.desired_state NOT IN ('suspended','deleted')`); err != nil {
 		return 0, err
 	}
-	if _, err := p.pool.Exec(ctx, `UPDATE instances i SET desired_state='running',version=version+1,updated_at=now()
+	if _, err := p.pool.Exec(ctx, `UPDATE instances i SET desired_state='running',version=i.version+1,updated_at=now()
 		FROM subscriptions s WHERE s.id=i.subscription_id AND s.status='active' AND i.desired_state='suspended'`); err != nil {
 		return 0, err
 	}
