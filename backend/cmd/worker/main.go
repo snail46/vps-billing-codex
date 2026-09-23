@@ -8,6 +8,7 @@ import (
 	"vps-billing/backend/internal/config"
 	"vps-billing/backend/internal/infrastructure/postgres"
 	"vps-billing/backend/internal/infrastructure/rediscache"
+	"vps-billing/backend/internal/operation"
 	"vps-billing/backend/internal/outbox"
 	platformruntime "vps-billing/backend/internal/platform/runtime"
 	"vps-billing/backend/internal/subscription"
@@ -36,8 +37,16 @@ func main() {
 		os.Exit(1)
 	}
 	defer func() { _ = redisClient.Close() }()
+	operationRepository := operation.NewPostgresRepository(postgresClient.Pool())
+	workflowRegistry := operation.NewWorkflowRegistry()
+	consumerName, hostnameErr := os.Hostname()
+	if hostnameErr != nil || consumerName == "" {
+		consumerName = "worker"
+	}
 	worker := workerapp.New(logger,
 		outbox.NewDispatcher(postgresClient.Pool(), redisClient.Raw()),
+		operation.NewRetryScheduler(operationRepository),
+		operation.NewQueueConsumer(operationRepository, redisClient.Raw(), workflowRegistry, consumerName),
 		subscription.NewLifecycleProcessor(postgresClient.Pool(), settings.SubscriptionGracePeriod),
 	)
 	ctx, stop := platformruntime.SignalContext(context.Background())

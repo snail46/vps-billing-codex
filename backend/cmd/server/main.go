@@ -15,10 +15,12 @@ import (
 	"vps-billing/backend/internal/http/health"
 	identityhttp "vps-billing/backend/internal/http/identity"
 	"vps-billing/backend/internal/http/middleware"
+	operationhttp "vps-billing/backend/internal/http/operation"
 	subscriptionhttp "vps-billing/backend/internal/http/subscription"
 	"vps-billing/backend/internal/identity"
 	"vps-billing/backend/internal/infrastructure/postgres"
 	"vps-billing/backend/internal/infrastructure/rediscache"
+	"vps-billing/backend/internal/operation"
 	"vps-billing/backend/internal/payment/fake"
 	platformruntime "vps-billing/backend/internal/platform/runtime"
 	"vps-billing/backend/internal/security/ratelimit"
@@ -67,6 +69,8 @@ func run(logger *slog.Logger) error {
 	commercehttp.New(commerceService, identityHandler, fake.New(settings.FakePaymentWebhookSecret), settings.FakePaymentEnabled).Register(router)
 	subscriptionService := subscription.NewService(subscription.NewPostgresRepository(postgresClient.Pool()))
 	subscriptionhttp.New(subscriptionService, commerceService, identityHandler).Register(router)
+	operationService := operation.NewService(operation.NewPostgresRepository(postgresClient.Pool()))
+	operationhttp.New(operationService, identityHandler, redisClient.Raw()).Register(router)
 	handler := middleware.Correlation(logger, middleware.AccessLog(logger, middleware.CORS([]string{settings.UserWebOrigin, settings.AdminWebOrigin}, router)))
 
 	server, err := serverapp.New(settings.ServerAddress, handler, logger)

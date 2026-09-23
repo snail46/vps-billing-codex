@@ -42,11 +42,11 @@
 - [x] MockProvider
 
 ## Phase 5 — Operation System
-- [ ] operations/steps
-- [ ] queue/worker
-- [ ] retries
-- [ ] SSE
-- [ ] OperationProgress component
+- [x] operations/steps
+- [x] queue/worker
+- [x] retries
+- [x] SSE
+- [x] OperationProgress component
 
 ## Phase 6 — Provision Vertical Slice
 - [ ] paid order → subscription

@@ -13,9 +13,12 @@ import (
 type Querier interface {
 	AddNodeReservation(ctx context.Context, arg AddNodeReservationParams) (Node, error)
 	AssignAdminRole(ctx context.Context, arg AssignAdminRoleParams) error
+	ClaimDueOperationRetries(ctx context.Context, limit int32) ([]Operation, error)
+	ClaimOperation(ctx context.Context, id uuid.UUID) (Operation, error)
 	ClaimOutboxEvents(ctx context.Context, limit int32) ([]OutboxEvent, error)
 	ClaimSubscriptionsForLifecycle(ctx context.Context, arg ClaimSubscriptionsForLifecycleParams) ([]Subscription, error)
 	CommitNodeReservation(ctx context.Context, arg CommitNodeReservationParams) (Node, error)
+	CompleteOperation(ctx context.Context, arg CompleteOperationParams) (Operation, error)
 	CountLedgerTransactionsByReference(ctx context.Context, arg CountLedgerTransactionsByReferenceParams) (int64, error)
 	CreateAdmin(ctx context.Context, arg CreateAdminParams) (Admin, error)
 	CreateAdminSession(ctx context.Context, arg CreateAdminSessionParams) (AdminSession, error)
@@ -27,6 +30,8 @@ type Querier interface {
 	CreateLedgerTransaction(ctx context.Context, arg CreateLedgerTransactionParams) error
 	CreateNode(ctx context.Context, arg CreateNodeParams) (Node, error)
 	CreateNodeGroup(ctx context.Context, arg CreateNodeGroupParams) (NodeGroup, error)
+	CreateOperation(ctx context.Context, arg CreateOperationParams) (Operation, error)
+	CreateOperationStep(ctx context.Context, arg CreateOperationStepParams) (OperationStep, error)
 	CreateOrder(ctx context.Context, arg CreateOrderParams) (Order, error)
 	CreateOrderItem(ctx context.Context, arg CreateOrderItemParams) error
 	CreateOutboxEvent(ctx context.Context, arg CreateOutboxEventParams) error
@@ -42,6 +47,9 @@ type Querier interface {
 	GetAdminByEmail(ctx context.Context, email string) (Admin, error)
 	GetAdminByID(ctx context.Context, id uuid.UUID) (Admin, error)
 	GetAdminTOTPSecret(ctx context.Context, adminID uuid.UUID) (AdminTotpSecret, error)
+	GetOperationByID(ctx context.Context, id uuid.UUID) (Operation, error)
+	GetOperationByIdempotency(ctx context.Context, idempotencyKey string) (Operation, error)
+	GetOperationForUser(ctx context.Context, arg GetOperationForUserParams) (Operation, error)
 	GetOrderByUserIdempotency(ctx context.Context, arg GetOrderByUserIdempotencyParams) (Order, error)
 	GetPaymentByOrder(ctx context.Context, orderID uuid.UUID) (Payment, error)
 	GetPlanForOrder(ctx context.Context, id uuid.UUID) (GetPlanForOrderRow, error)
@@ -58,6 +66,7 @@ type Querier interface {
 	ListInvoicesByUser(ctx context.Context, userID uuid.UUID) ([]Invoice, error)
 	ListNodeGroups(ctx context.Context) ([]NodeGroup, error)
 	ListNodes(ctx context.Context) ([]Node, error)
+	ListOperationSteps(ctx context.Context, operationID uuid.UUID) ([]OperationStep, error)
 	ListOrdersByUser(ctx context.Context, userID uuid.UUID) ([]ListOrdersByUserRow, error)
 	ListSubscriptionsByUser(ctx context.Context, userID uuid.UUID) ([]ListSubscriptionsByUserRow, error)
 	LockPaymentOrderInvoice(ctx context.Context, arg LockPaymentOrderInvoiceParams) (LockPaymentOrderInvoiceRow, error)
@@ -72,14 +81,18 @@ type Querier interface {
 	MarkWebhookProcessed(ctx context.Context, id uuid.UUID) error
 	ReleaseNodeReservation(ctx context.Context, arg ReleaseNodeReservationParams) (Node, error)
 	RenewSubscriptionAfterPayment(ctx context.Context, arg RenewSubscriptionAfterPaymentParams) (Subscription, error)
+	RequeueOperation(ctx context.Context, id uuid.UUID) (Operation, error)
 	RevokeAdminSession(ctx context.Context, tokenHash []byte) error
 	RevokeUserSession(ctx context.Context, tokenHash []byte) error
+	ScheduleOperationRetry(ctx context.Context, arg ScheduleOperationRetryParams) (Operation, error)
 	SelectCandidateNodesForUpdate(ctx context.Context, arg SelectCandidateNodesForUpdateParams) ([]Node, error)
 	SetResourceReservationStatus(ctx context.Context, arg SetResourceReservationStatusParams) (ResourceReservation, error)
 	SetSubscriptionCancelAtPeriodEnd(ctx context.Context, arg SetSubscriptionCancelAtPeriodEndParams) (Subscription, error)
 	TouchAdminSession(ctx context.Context, id uuid.UUID) error
 	TouchUserSession(ctx context.Context, id uuid.UUID) error
 	UpdateAdminLastLogin(ctx context.Context, id uuid.UUID) error
+	UpdateOperationProgress(ctx context.Context, arg UpdateOperationProgressParams) (Operation, error)
+	UpdateOperationStep(ctx context.Context, arg UpdateOperationStepParams) (OperationStep, error)
 	UpdateSubscriptionLifecycle(ctx context.Context, arg UpdateSubscriptionLifecycleParams) (Subscription, error)
 	UpdateUserLastLogin(ctx context.Context, id uuid.UUID) error
 	UpsertAdminTOTPSecret(ctx context.Context, arg UpsertAdminTOTPSecretParams) error

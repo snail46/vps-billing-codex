@@ -8,6 +8,8 @@ Desired Instance: running/stopped/suspended/deleted
 Observed Instance: pending/provisioning/running/stopping/stopped/restarting/reinstalling/suspending/suspended/deleting/deleted/error/unknown  
 Operation: queued/running/waiting_provider/waiting_resource/verifying/retrying/succeeded/failed/cancelled
 
+Operation 只有 queued 可被 Worker 原子 claim。可重试失败进入 retrying 并持久化 next_attempt_at；RetryScheduler 到期后生成新的 queued Outbox 事件。终态不可由进度、步骤或重复队列消息重新打开。OperationStep: pending/running/waiting/succeeded/failed/skipped。
+
 Provider 不可达时实例为 unknown，不得猜 stopped/deleted。
 Create timeout 先 verifying，不得盲目重复创建。
 

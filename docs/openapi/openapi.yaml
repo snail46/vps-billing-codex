@@ -321,6 +321,8 @@ paths:
           content:
             application/json:
               schema: {$ref: "#/components/schemas/OperationResponse"}
+        "401": {$ref: "#/components/responses/Unauthenticated"}
+        "404": {$ref: "#/components/responses/NotFound"}
   /events:
     get:
       summary: Stream authenticated events
@@ -372,6 +374,7 @@ components:
     Conflict: {description: Resource conflict, content: {application/json: {schema: {$ref: "#/components/schemas/ErrorResponse"}}}}
     ValidationFailure: {description: Validation failure, content: {application/json: {schema: {$ref: "#/components/schemas/ErrorResponse"}}}}
     RateLimited: {description: Rate limited, content: {application/json: {schema: {$ref: "#/components/schemas/ErrorResponse"}}}}
+    NotFound: {description: Resource not found, content: {application/json: {schema: {$ref: "#/components/schemas/ErrorResponse"}}}}
   schemas:
     LoginRequest:
       type: object
@@ -487,9 +490,12 @@ components:
         request_id: {type: string}
         data:
           type: object
-          required: [id, status, progress]
+          required: [id, type, resource_type, resource_id, status, progress, retryable, retry_count, max_retries, trace_id, created_at, updated_at, steps]
           properties:
             id: {type: string, format: uuid}
+            type: {type: string}
+            resource_type: {type: string}
+            resource_id: {type: string, format: uuid}
             status:
               type: string
               enum: [queued, running, waiting_provider, waiting_resource, verifying, retrying, succeeded, failed, cancelled]
@@ -497,4 +503,27 @@ components:
             progress: {type: integer, minimum: 0, maximum: 100}
             message_key: {type: [string, "null"]}
             retryable: {type: boolean}
+            retry_count: {type: integer, minimum: 0}
+            max_retries: {type: integer, minimum: 0}
             error_code: {type: [string, "null"]}
+            trace_id: {type: string}
+            started_at: {type: [string, "null"], format: date-time}
+            finished_at: {type: [string, "null"], format: date-time}
+            created_at: {type: string, format: date-time}
+            updated_at: {type: string, format: date-time}
+            steps:
+              type: array
+              items: {$ref: "#/components/schemas/OperationStep"}
+    OperationStep:
+      type: object
+      required: [key, order, status, progress, attempt]
+      properties:
+        key: {type: string}
+        order: {type: integer}
+        status: {type: string, enum: [pending, running, waiting, succeeded, failed, skipped]}
+        progress: {type: integer, minimum: 0, maximum: 100}
+        attempt: {type: integer, minimum: 0}
+        error_code: {type: [string, "null"]}
+        output: {type: object, additionalProperties: true}
+        started_at: {type: [string, "null"], format: date-time}
+        finished_at: {type: [string, "null"], format: date-time}

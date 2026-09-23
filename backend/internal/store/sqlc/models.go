@@ -220,6 +220,10 @@ type Operation struct {
 	FinishedAt          pgtype.Timestamptz `json:"finished_at"`
 	CreatedAt           pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt           pgtype.Timestamptz `json:"updated_at"`
+	UserID              *uuid.UUID         `json:"user_id"`
+	ActorAdminID        *uuid.UUID         `json:"actor_admin_id"`
+	NextAttemptAt       pgtype.Timestamptz `json:"next_attempt_at"`
+	HeartbeatAt         pgtype.Timestamptz `json:"heartbeat_at"`
 }
 
 type OperationStep struct {
@@ -236,6 +240,7 @@ type OperationStep struct {
 	FinishedAt   pgtype.Timestamptz `json:"finished_at"`
 	CreatedAt    pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
+	Output       []byte             `json:"output"`
 }
 
 type Order struct {

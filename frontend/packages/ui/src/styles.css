@@ -105,6 +105,18 @@ input {
   margin-bottom: 0;
 }
 
+.operation-progress { display: grid; gap: 12px; }
+.operation-progress__header { display: flex; justify-content: space-between; }
+.operation-progress progress { accent-color: #155eef; height: 10px; width: 100%; }
+.operation-progress__retry { color: #854a0e; margin: 0; }
+.operation-progress__steps { display: grid; gap: 8px; margin: 0; padding-left: 20px; }
+.operation-progress__steps li { color: #526078; padding-left: 4px; }
+.operation-progress__steps li span:last-child { float: right; }
+.operation-progress__steps li[data-status="succeeded"] { color: #067647; }
+.operation-progress__steps li[data-status="failed"],
+.operation-progress__error { color: #b42318; }
+.operation-progress__error { margin: 0; }
+
 .sr-only {
   clip: rect(0, 0, 0, 0);
   clip-path: inset(50%);

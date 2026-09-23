@@ -75,6 +75,50 @@ export interface Subscription {
   version: number;
 }
 
+export type OperationStatus =
+  | "queued"
+  | "running"
+  | "waiting_provider"
+  | "waiting_resource"
+  | "verifying"
+  | "retrying"
+  | "succeeded"
+  | "failed"
+  | "cancelled";
+
+export interface OperationStep {
+  key: string;
+  order: number;
+  status: "pending" | "running" | "waiting" | "succeeded" | "failed" | "skipped";
+  progress: number;
+  attempt: number;
+  error_code: string | null;
+  output?: Record<string, unknown>;
+  started_at: string | null;
+  finished_at: string | null;
+}
+
+export interface Operation {
+  id: string;
+  type: string;
+  resource_type: string;
+  resource_id: string;
+  status: OperationStatus;
+  phase: string | null;
+  progress: number;
+  message_key: string | null;
+  retryable: boolean;
+  retry_count: number;
+  max_retries: number;
+  error_code: string | null;
+  trace_id: string;
+  started_at: string | null;
+  finished_at: string | null;
+  created_at: string;
+  updated_at: string;
+  steps: OperationStep[];
+}
+
 export class ApiRequestError extends Error {
   constructor(public readonly code: string, public readonly messageKey: string) {
     super(code);

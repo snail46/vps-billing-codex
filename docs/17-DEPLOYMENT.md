@@ -25,3 +25,5 @@ ADMIN_BOOTSTRAP_PASSWORD='replace-with-a-strong-secret' /app/bootstrap-admin --e
 Fake Payment 仅用于 V1 验收和非生产测试，回调使用 `FAKE_PAYMENT_WEBHOOK_SECRET` 的 HMAC-SHA256 签名。部署必须使用独立的至少 32 字符密钥。生产接入真实网关时必须新增独立 Adapter、验签与 Contract Test，不得复用 Fake secret。
 
 Subscription lifecycle Worker 使用 `SUBSCRIPTION_GRACE_PERIOD`（Go duration，默认 `72h`）计算从计费周期结束开始的宽限期。修改该值只影响之后进入 past_due 的订阅；已持久化的 `grace_until` 不回溯修改。
+
+Worker 需要访问 Redis Stream `operation-queue`（consumer group `operation-workers`）与 `domain-events`。PostgreSQL 是 Operation 的真相源；Redis 暂时不可用时 Outbox 保留待发布事件，恢复后继续投递。部署期间至少运行一个 Worker；失联 consumer 与 stale heartbeat 的自动恢复由 Phase 11 Reconciler 提供。

@@ -43,6 +43,17 @@ func (d *Dispatcher) ProcessBatch(ctx context.Context) (int, error) {
 			}
 			return 0, fmt.Errorf("publish outbox event %s: %w", event.ID, err)
 		}
+		if event.EventType == "operation.queued.v1" {
+			if _, err := d.redis.XAdd(ctx, &redis.XAddArgs{Stream: "operation-queue", Values: map[string]any{"event_id": event.ID.String(), "event_type": event.EventType, "payload": string(event.Payload)}}).Result(); err != nil {
+				if retryErr := queries.MarkOutboxRetry(ctx, event.ID); retryErr != nil {
+					return 0, fmt.Errorf("publish operation queue: %w; record retry: %v", err, retryErr)
+				}
+				if commitErr := tx.Commit(ctx); commitErr != nil {
+					return 0, commitErr
+				}
+				return 0, fmt.Errorf("publish operation queue event %s: %w", event.ID, err)
+			}
+		}
 		if err := queries.MarkOutboxPublished(ctx, event.ID); err != nil {
 			return 0, err
 		}

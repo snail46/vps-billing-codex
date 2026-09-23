@@ -446,11 +446,23 @@ CREATE TABLE operations (
   error_code varchar(128),
   error_message text,
   trace_id varchar(255) NOT NULL,
+  user_id uuid REFERENCES users(id),
+  actor_admin_id uuid REFERENCES admins(id),
+  next_attempt_at timestamptz NOT NULL DEFAULT now(),
+  heartbeat_at timestamptz,
   started_at timestamptz,
   finished_at timestamptz,
   created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now()
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT operations_status_valid CHECK (status IN ('queued', 'running', 'waiting_provider', 'waiting_resource', 'verifying', 'retrying', 'succeeded', 'failed', 'cancelled'))
 );
+
+CREATE INDEX ix_operations_dispatch
+ON operations(status, next_attempt_at, created_at);
+
+CREATE INDEX ix_operations_user
+ON operations(user_id, created_at DESC)
+WHERE user_id IS NOT NULL;
 
 CREATE TABLE operation_steps (
   id uuid PRIMARY KEY,
@@ -462,11 +474,13 @@ CREATE TABLE operation_steps (
   attempt integer NOT NULL DEFAULT 0,
   error_code varchar(128),
   error_message text,
+  output jsonb NOT NULL DEFAULT '{}'::jsonb,
   started_at timestamptz,
   finished_at timestamptz,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
-  UNIQUE(operation_id, step_key)
+  UNIQUE(operation_id, step_key),
+  CONSTRAINT operation_steps_status_valid CHECK (status IN ('pending', 'running', 'waiting', 'succeeded', 'failed', 'skipped'))
 );
 
 CREATE TABLE resource_reservations (

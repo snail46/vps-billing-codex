@@ -20,3 +20,5 @@ Commerce 使用用户范围的订单幂等键、网关事件唯一回执、Payme
 Subscription 续费通过 `orders.kind=renewal` 与 `orders.subscription_id` 明确关联，仍创建独立 Order / Invoice / Payment。续费支付事务同时延长 Subscription 并写 `subscription.renewed.v1`；重复网关事件不能重复延长周期。生命周期截止时间建立索引，由 Worker 以行锁批量推进。
 
 Infrastructure 的节点容量同时记录 total / allocated / reserved，覆盖 CPU、内存、磁盘、IPv4、IPv6 和 NAT 端口。Scheduler 在事务中锁定候选 Node、再次检查容量、增加 reserved 并插入每 Operation 唯一的 Reservation；数据库约束禁止负数与超卖。commit 将 reserved 原子转为 allocated，release 原子归还 reserved。
+
+Operation 以全局唯一 idempotency key 创建，并记录 user/admin actor、trace、retry schedule 与 heartbeat。OperationStep 按 `(operation_id, step_key)` 唯一，保存公开安全输出；原始错误只保存在服务端，不进入用户事件或响应。
