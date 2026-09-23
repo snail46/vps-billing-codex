@@ -11,21 +11,27 @@ import (
 )
 
 type Querier interface {
+	AddNodeReservation(ctx context.Context, arg AddNodeReservationParams) (Node, error)
 	AssignAdminRole(ctx context.Context, arg AssignAdminRoleParams) error
 	ClaimOutboxEvents(ctx context.Context, limit int32) ([]OutboxEvent, error)
 	ClaimSubscriptionsForLifecycle(ctx context.Context, arg ClaimSubscriptionsForLifecycleParams) ([]Subscription, error)
+	CommitNodeReservation(ctx context.Context, arg CommitNodeReservationParams) (Node, error)
 	CountLedgerTransactionsByReference(ctx context.Context, arg CountLedgerTransactionsByReferenceParams) (int64, error)
 	CreateAdmin(ctx context.Context, arg CreateAdminParams) (Admin, error)
 	CreateAdminSession(ctx context.Context, arg CreateAdminSessionParams) (AdminSession, error)
 	CreateAuditEvent(ctx context.Context, arg CreateAuditEventParams) error
+	CreateInfrastructureProvider(ctx context.Context, arg CreateInfrastructureProviderParams) (Provider, error)
 	CreateInvoice(ctx context.Context, arg CreateInvoiceParams) (Invoice, error)
 	CreateInvoiceItem(ctx context.Context, arg CreateInvoiceItemParams) error
 	CreateLedgerEntry(ctx context.Context, arg CreateLedgerEntryParams) error
 	CreateLedgerTransaction(ctx context.Context, arg CreateLedgerTransactionParams) error
+	CreateNode(ctx context.Context, arg CreateNodeParams) (Node, error)
+	CreateNodeGroup(ctx context.Context, arg CreateNodeGroupParams) (NodeGroup, error)
 	CreateOrder(ctx context.Context, arg CreateOrderParams) (Order, error)
 	CreateOrderItem(ctx context.Context, arg CreateOrderItemParams) error
 	CreateOutboxEvent(ctx context.Context, arg CreateOutboxEventParams) error
 	CreatePayment(ctx context.Context, arg CreatePaymentParams) (Payment, error)
+	CreateResourceReservation(ctx context.Context, arg CreateResourceReservationParams) (ResourceReservation, error)
 	CreateUser(ctx context.Context, arg CreateUserParams) (User, error)
 	CreateUserSession(ctx context.Context, arg CreateUserSessionParams) (UserSession, error)
 	DatabasePing(ctx context.Context) (int32, error)
@@ -39,6 +45,7 @@ type Querier interface {
 	GetOrderByUserIdempotency(ctx context.Context, arg GetOrderByUserIdempotencyParams) (Order, error)
 	GetPaymentByOrder(ctx context.Context, orderID uuid.UUID) (Payment, error)
 	GetPlanForOrder(ctx context.Context, id uuid.UUID) (GetPlanForOrderRow, error)
+	GetResourceReservationByOperation(ctx context.Context, operationID uuid.UUID) (ResourceReservation, error)
 	GetSubscriptionForRenewal(ctx context.Context, arg GetSubscriptionForRenewalParams) (GetSubscriptionForRenewalRow, error)
 	GetUserByEmail(ctx context.Context, email string) (User, error)
 	GetUserByID(ctx context.Context, id uuid.UUID) (User, error)
@@ -47,10 +54,14 @@ type Querier interface {
 	InsertWebhookReceipt(ctx context.Context, arg InsertWebhookReceiptParams) (uuid.UUID, error)
 	ListActiveProductsAndPlans(ctx context.Context) ([]ListActiveProductsAndPlansRow, error)
 	ListAdminPermissions(ctx context.Context, adminID uuid.UUID) ([]string, error)
+	ListInfrastructureProviders(ctx context.Context) ([]Provider, error)
 	ListInvoicesByUser(ctx context.Context, userID uuid.UUID) ([]Invoice, error)
+	ListNodeGroups(ctx context.Context) ([]NodeGroup, error)
+	ListNodes(ctx context.Context) ([]Node, error)
 	ListOrdersByUser(ctx context.Context, userID uuid.UUID) ([]ListOrdersByUserRow, error)
 	ListSubscriptionsByUser(ctx context.Context, userID uuid.UUID) ([]ListSubscriptionsByUserRow, error)
 	LockPaymentOrderInvoice(ctx context.Context, arg LockPaymentOrderInvoiceParams) (LockPaymentOrderInvoiceRow, error)
+	LockResourceReservation(ctx context.Context, id uuid.UUID) (ResourceReservation, error)
 	LockSubscriptionByID(ctx context.Context, id uuid.UUID) (Subscription, error)
 	LockSubscriptionByUser(ctx context.Context, arg LockSubscriptionByUserParams) (Subscription, error)
 	MarkInvoicePaid(ctx context.Context, id uuid.UUID) error
@@ -59,9 +70,12 @@ type Querier interface {
 	MarkOutboxRetry(ctx context.Context, id uuid.UUID) error
 	MarkPaymentSucceeded(ctx context.Context, arg MarkPaymentSucceededParams) error
 	MarkWebhookProcessed(ctx context.Context, id uuid.UUID) error
+	ReleaseNodeReservation(ctx context.Context, arg ReleaseNodeReservationParams) (Node, error)
 	RenewSubscriptionAfterPayment(ctx context.Context, arg RenewSubscriptionAfterPaymentParams) (Subscription, error)
 	RevokeAdminSession(ctx context.Context, tokenHash []byte) error
 	RevokeUserSession(ctx context.Context, tokenHash []byte) error
+	SelectCandidateNodesForUpdate(ctx context.Context, arg SelectCandidateNodesForUpdateParams) ([]Node, error)
+	SetResourceReservationStatus(ctx context.Context, arg SetResourceReservationStatusParams) (ResourceReservation, error)
 	SetSubscriptionCancelAtPeriodEnd(ctx context.Context, arg SetSubscriptionCancelAtPeriodEndParams) (Subscription, error)
 	TouchAdminSession(ctx context.Context, id uuid.UUID) error
 	TouchUserSession(ctx context.Context, id uuid.UUID) error

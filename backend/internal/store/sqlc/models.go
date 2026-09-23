@@ -71,7 +71,7 @@ type Instance struct {
 	Name               string             `json:"name"`
 	DesiredState       string             `json:"desired_state"`
 	ObservedState      string             `json:"observed_state"`
-	CpuCores           pgtype.Numeric     `json:"cpu_cores"`
+	CpuCores           float64            `json:"cpu_cores"`
 	MemoryMb           int32              `json:"memory_mb"`
 	DiskGb             int32              `json:"disk_gb"`
 	TrafficLimitGb     pgtype.Int8        `json:"traffic_limit_gb"`
@@ -150,13 +150,13 @@ type Node struct {
 	Name              string             `json:"name"`
 	Region            string             `json:"region"`
 	Status            string             `json:"status"`
-	CpuTotal          pgtype.Numeric     `json:"cpu_total"`
+	CpuTotal          float64            `json:"cpu_total"`
 	MemoryTotalMb     int64              `json:"memory_total_mb"`
 	DiskTotalGb       int64              `json:"disk_total_gb"`
-	CpuAllocated      pgtype.Numeric     `json:"cpu_allocated"`
+	CpuAllocated      float64            `json:"cpu_allocated"`
 	MemoryAllocatedMb int64              `json:"memory_allocated_mb"`
 	DiskAllocatedGb   int64              `json:"disk_allocated_gb"`
-	CpuReserved       pgtype.Numeric     `json:"cpu_reserved"`
+	CpuReserved       float64            `json:"cpu_reserved"`
 	MemoryReservedMb  int64              `json:"memory_reserved_mb"`
 	DiskReservedGb    int64              `json:"disk_reserved_gb"`
 	Weight            int32              `json:"weight"`
@@ -165,6 +165,15 @@ type Node struct {
 	Version           int64              `json:"version"`
 	CreatedAt         pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
+	Ipv4Total         int32              `json:"ipv4_total"`
+	Ipv4Allocated     int32              `json:"ipv4_allocated"`
+	Ipv4Reserved      int32              `json:"ipv4_reserved"`
+	Ipv6Total         int32              `json:"ipv6_total"`
+	Ipv6Allocated     int32              `json:"ipv6_allocated"`
+	Ipv6Reserved      int32              `json:"ipv6_reserved"`
+	NatPortTotal      int32              `json:"nat_port_total"`
+	NatPortAllocated  int32              `json:"nat_port_allocated"`
+	NatPortReserved   int32              `json:"nat_port_reserved"`
 }
 
 type NodeGroup struct {
@@ -309,7 +318,7 @@ type Plan struct {
 	Slug           string             `json:"slug"`
 	NameI18n       []byte             `json:"name_i18n"`
 	Status         string             `json:"status"`
-	CpuCores       pgtype.Numeric     `json:"cpu_cores"`
+	CpuCores       float64            `json:"cpu_cores"`
 	MemoryMb       int32              `json:"memory_mb"`
 	DiskGb         int32              `json:"disk_gb"`
 	TrafficGb      pgtype.Int8        `json:"traffic_gb"`
@@ -370,7 +379,7 @@ type ResourceReservation struct {
 	ID           uuid.UUID          `json:"id"`
 	NodeID       uuid.UUID          `json:"node_id"`
 	OperationID  uuid.UUID          `json:"operation_id"`
-	CpuCores     pgtype.Numeric     `json:"cpu_cores"`
+	CpuCores     float64            `json:"cpu_cores"`
 	MemoryMb     int64              `json:"memory_mb"`
 	DiskGb       int64              `json:"disk_gb"`
 	Ipv4Count    int32              `json:"ipv4_count"`

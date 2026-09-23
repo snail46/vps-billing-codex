@@ -5,23 +5,38 @@ import (
 	"time"
 )
 
+const (
+	ErrorTimeout               = "PROVIDER_TIMEOUT"
+	ErrorUnavailable           = "PROVIDER_UNAVAILABLE"
+	ErrorAuthFailed            = "PROVIDER_AUTH_FAILED"
+	ErrorNodeOffline           = "NODE_OFFLINE"
+	ErrorResourceExhausted     = "RESOURCE_EXHAUSTED"
+	ErrorImageNotFound         = "IMAGE_NOT_FOUND"
+	ErrorInstanceNotFound      = "INSTANCE_NOT_FOUND"
+	ErrorInstanceAlreadyExists = "INSTANCE_ALREADY_EXISTS"
+	ErrorPortExhausted         = "PORT_EXHAUSTED"
+	ErrorNetwork               = "NETWORK_ERROR"
+	ErrorUnsupportedOperation  = "UNSUPPORTED_OPERATION"
+	ErrorUnknown               = "UNKNOWN_PROVIDER_ERROR"
+)
+
 type Capabilities struct {
-	CreateInstance    bool
-	DeleteInstance    bool
-	Start             bool
-	Stop              bool
-	Restart           bool
-	Reinstall         bool
-	ResetPassword     bool
-	Traffic           bool
-	Metrics           bool
-	NAT               bool
-	IPv4              bool
-	IPv6              bool
-	Snapshot          bool
-	Console           bool
-	Firewall          bool
-	SupportedRuntimes []string
+	CreateInstance    bool     `json:"create_instance"`
+	DeleteInstance    bool     `json:"delete_instance"`
+	Start             bool     `json:"start"`
+	Stop              bool     `json:"stop"`
+	Restart           bool     `json:"restart"`
+	Reinstall         bool     `json:"reinstall"`
+	ResetPassword     bool     `json:"reset_password"`
+	Traffic           bool     `json:"traffic"`
+	Metrics           bool     `json:"metrics"`
+	NAT               bool     `json:"nat"`
+	IPv4              bool     `json:"ipv4"`
+	IPv6              bool     `json:"ipv6"`
+	Snapshot          bool     `json:"snapshot"`
+	Console           bool     `json:"console"`
+	Firewall          bool     `json:"firewall"`
+	SupportedRuntimes []string `json:"supported_runtimes"`
 }
 
 type Health struct {
@@ -162,6 +177,8 @@ func (e *Error) Error() string {
 	}
 	return e.Code
 }
+
+func (e *Error) Unwrap() error { return e.Cause }
 
 type Provider interface {
 	Name() string

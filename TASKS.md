@@ -35,11 +35,11 @@
 - [x] due/grace/suspend/cancel
 
 ## Phase 4 — Infrastructure Domain
-- [ ] provider/node group/node
-- [ ] capabilities
-- [ ] reservation
-- [ ] deterministic scheduler
-- [ ] MockProvider
+- [x] provider/node group/node
+- [x] capabilities
+- [x] reservation
+- [x] deterministic scheduler
+- [x] MockProvider
 
 ## Phase 5 — Operation System
 - [ ] operations/steps

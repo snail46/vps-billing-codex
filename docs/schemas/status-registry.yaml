@@ -36,6 +36,25 @@ subscription:
   expired: {severity: neutral, zh_CN: "已过期", en_US: "Expired"}
   terminated: {severity: error, zh_CN: "已终止", en_US: "Terminated"}
 
+provider:
+  active: {severity: success, zh_CN: "正常", en_US: "Active"}
+  degraded: {severity: warning, zh_CN: "性能下降", en_US: "Degraded"}
+  unavailable: {severity: error, zh_CN: "不可用", en_US: "Unavailable"}
+  disabled: {severity: neutral, zh_CN: "已停用", en_US: "Disabled"}
+
+node:
+  online: {severity: success, zh_CN: "在线", en_US: "Online"}
+  degraded: {severity: warning, zh_CN: "性能下降", en_US: "Degraded"}
+  draining: {severity: warning, zh_CN: "正在排空", en_US: "Draining"}
+  maintenance: {severity: info, zh_CN: "维护中", en_US: "Maintenance"}
+  offline: {severity: error, zh_CN: "离线", en_US: "Offline"}
+
+reservation:
+  reserved: {severity: info, zh_CN: "已预留", en_US: "Reserved"}
+  committed: {severity: success, zh_CN: "已分配", en_US: "Committed"}
+  released: {severity: neutral, zh_CN: "已释放", en_US: "Released"}
+  expired: {severity: warning, zh_CN: "已过期", en_US: "Expired"}
+
 instance:
   running:
     severity: success

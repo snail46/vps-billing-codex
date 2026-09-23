@@ -29,6 +29,7 @@ type CatalogItem struct {
 	PlanID         uuid.UUID       `json:"plan_id"`
 	PlanSlug       string          `json:"plan_slug"`
 	PlanName       json.RawMessage `json:"plan_name_i18n"`
+	CPUCores       float64         `json:"cpu_cores"`
 	MemoryMB       int32           `json:"memory_mb"`
 	DiskGB         int32           `json:"disk_gb"`
 	TrafficGB      *int64          `json:"traffic_gb"`

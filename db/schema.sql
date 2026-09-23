@@ -81,7 +81,7 @@ CREATE TABLE node_groups (
   id uuid PRIMARY KEY,
   name varchar(255) NOT NULL UNIQUE,
   region varchar(128) NOT NULL,
-  status varchar(64) NOT NULL,
+  status varchar(64) NOT NULL CHECK (status IN ('active', 'disabled')),
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
@@ -124,11 +124,11 @@ CREATE TABLE plans (
 
 CREATE TABLE providers (
   id uuid PRIMARY KEY,
-  name varchar(255) NOT NULL,
+  name varchar(255) NOT NULL UNIQUE,
   provider_type varchar(64) NOT NULL,
   endpoint text,
   credential_ref varchar(255),
-  status varchar(64) NOT NULL,
+  status varchar(64) NOT NULL CHECK (status IN ('active', 'degraded', 'disabled', 'unavailable')),
   version varchar(128),
   config jsonb NOT NULL DEFAULT '{}'::jsonb,
   capabilities jsonb NOT NULL DEFAULT '{}'::jsonb,
@@ -144,7 +144,7 @@ CREATE TABLE nodes (
   provider_node_id varchar(255),
   name varchar(255) NOT NULL UNIQUE,
   region varchar(128) NOT NULL,
-  status varchar(64) NOT NULL,
+  status varchar(64) NOT NULL CHECK (status IN ('online', 'degraded', 'draining', 'maintenance', 'offline')),
   cpu_total numeric(10,2) NOT NULL DEFAULT 0,
   memory_total_mb bigint NOT NULL DEFAULT 0,
   disk_total_gb bigint NOT NULL DEFAULT 0,
@@ -154,13 +154,42 @@ CREATE TABLE nodes (
   cpu_reserved numeric(10,2) NOT NULL DEFAULT 0,
   memory_reserved_mb bigint NOT NULL DEFAULT 0,
   disk_reserved_gb bigint NOT NULL DEFAULT 0,
+  ipv4_total integer NOT NULL DEFAULT 0,
+  ipv4_allocated integer NOT NULL DEFAULT 0,
+  ipv4_reserved integer NOT NULL DEFAULT 0,
+  ipv6_total integer NOT NULL DEFAULT 0,
+  ipv6_allocated integer NOT NULL DEFAULT 0,
+  ipv6_reserved integer NOT NULL DEFAULT 0,
+  nat_port_total integer NOT NULL DEFAULT 0,
+  nat_port_allocated integer NOT NULL DEFAULT 0,
+  nat_port_reserved integer NOT NULL DEFAULT 0,
   weight integer NOT NULL DEFAULT 100,
   capabilities jsonb NOT NULL DEFAULT '{}'::jsonb,
   last_seen_at timestamptz,
   version bigint NOT NULL DEFAULT 1,
   created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now()
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT nodes_capacity_nonnegative CHECK (
+    cpu_total >= 0 AND memory_total_mb >= 0 AND disk_total_gb >= 0 AND
+    cpu_allocated >= 0 AND memory_allocated_mb >= 0 AND disk_allocated_gb >= 0 AND
+    cpu_reserved >= 0 AND memory_reserved_mb >= 0 AND disk_reserved_gb >= 0 AND
+    ipv4_total >= 0 AND ipv4_allocated >= 0 AND ipv4_reserved >= 0 AND
+    ipv6_total >= 0 AND ipv6_allocated >= 0 AND ipv6_reserved >= 0 AND
+    nat_port_total >= 0 AND nat_port_allocated >= 0 AND nat_port_reserved >= 0
+  ),
+  CONSTRAINT nodes_capacity_not_oversubscribed CHECK (
+    cpu_allocated + cpu_reserved <= cpu_total AND
+    memory_allocated_mb + memory_reserved_mb <= memory_total_mb AND
+    disk_allocated_gb + disk_reserved_gb <= disk_total_gb AND
+    ipv4_allocated + ipv4_reserved <= ipv4_total AND
+    ipv6_allocated + ipv6_reserved <= ipv6_total AND
+    nat_port_allocated + nat_port_reserved <= nat_port_total
+  )
 );
+
+CREATE UNIQUE INDEX ux_nodes_provider_node
+ON nodes(provider_id, provider_node_id)
+WHERE provider_node_id IS NOT NULL;
 
 CREATE TABLE orders (
   id uuid PRIMARY KEY,
@@ -443,18 +472,25 @@ CREATE TABLE operation_steps (
 CREATE TABLE resource_reservations (
   id uuid PRIMARY KEY,
   node_id uuid NOT NULL REFERENCES nodes(id),
-  operation_id uuid NOT NULL REFERENCES operations(id),
+  operation_id uuid NOT NULL UNIQUE REFERENCES operations(id),
   cpu_cores numeric(10,2) NOT NULL DEFAULT 0,
   memory_mb bigint NOT NULL DEFAULT 0,
   disk_gb bigint NOT NULL DEFAULT 0,
   ipv4_count integer NOT NULL DEFAULT 0,
   ipv6_count integer NOT NULL DEFAULT 0,
   nat_port_count integer NOT NULL DEFAULT 0,
-  status varchar(64) NOT NULL,
+  status varchar(64) NOT NULL CHECK (status IN ('reserved', 'committed', 'released', 'expired')),
   expires_at timestamptz NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now()
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT resource_reservations_amounts_nonnegative CHECK (
+    cpu_cores >= 0 AND memory_mb >= 0 AND disk_gb >= 0 AND
+    ipv4_count >= 0 AND ipv6_count >= 0 AND nat_port_count >= 0
+  )
 );
+
+CREATE INDEX ix_resource_reservations_expiry
+ON resource_reservations(status, expires_at);
 
 CREATE TABLE outbox_events (
   id uuid PRIMARY KEY,

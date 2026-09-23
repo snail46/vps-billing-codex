@@ -16,3 +16,5 @@ Direct Provider：LXDAPI/CLICD 等。
 Agent Provider：Runman Gateway → runman-agent。
 
 实现前核对第三方当前官方文档/源码；只改 Adapter，不改 Business Contract。
+
+V1 MockProvider 是完整的内存 Contract 实现：覆盖 health/capabilities/images/create/get/actions/usage/traffic/NAT，Create 与动作均要求幂等键，且同键不同请求会显式失败。它只用于自动化验收和开发，不作为生产 Provider。Provider Registry 按数据库 Provider ID 解析 Adapter，业务代码不按 provider type 分支。

@@ -437,7 +437,7 @@ type GetPlanForOrderRow struct {
 	Slug                   string             `json:"slug"`
 	NameI18n               []byte             `json:"name_i18n"`
 	Status                 string             `json:"status"`
-	CpuCores               pgtype.Numeric     `json:"cpu_cores"`
+	CpuCores               float64            `json:"cpu_cores"`
 	MemoryMb               int32              `json:"memory_mb"`
 	DiskGb                 int32              `json:"disk_gb"`
 	TrafficGb              pgtype.Int8        `json:"traffic_gb"`
@@ -575,26 +575,26 @@ ORDER BY products.sort_order, products.slug, plans.price_minor, plans.slug
 `
 
 type ListActiveProductsAndPlansRow struct {
-	ProductID       uuid.UUID      `json:"product_id"`
-	ProductSlug     string         `json:"product_slug"`
-	ProductNameI18n []byte         `json:"product_name_i18n"`
-	DescriptionI18n []byte         `json:"description_i18n"`
-	PlanID          uuid.UUID      `json:"plan_id"`
-	PlanSlug        string         `json:"plan_slug"`
-	PlanNameI18n    []byte         `json:"plan_name_i18n"`
-	CpuCores        pgtype.Numeric `json:"cpu_cores"`
-	MemoryMb        int32          `json:"memory_mb"`
-	DiskGb          int32          `json:"disk_gb"`
-	TrafficGb       pgtype.Int8    `json:"traffic_gb"`
-	BandwidthMbps   pgtype.Int4    `json:"bandwidth_mbps"`
-	Ipv4Count       int32          `json:"ipv4_count"`
-	Ipv6Count       int32          `json:"ipv6_count"`
-	NatPortCount    int32          `json:"nat_port_count"`
-	Virtualization  string         `json:"virtualization"`
-	BillingCycle    string         `json:"billing_cycle"`
-	PriceMinor      int64          `json:"price_minor"`
-	Currency        string         `json:"currency"`
-	StockMode       string         `json:"stock_mode"`
+	ProductID       uuid.UUID   `json:"product_id"`
+	ProductSlug     string      `json:"product_slug"`
+	ProductNameI18n []byte      `json:"product_name_i18n"`
+	DescriptionI18n []byte      `json:"description_i18n"`
+	PlanID          uuid.UUID   `json:"plan_id"`
+	PlanSlug        string      `json:"plan_slug"`
+	PlanNameI18n    []byte      `json:"plan_name_i18n"`
+	CpuCores        float64     `json:"cpu_cores"`
+	MemoryMb        int32       `json:"memory_mb"`
+	DiskGb          int32       `json:"disk_gb"`
+	TrafficGb       pgtype.Int8 `json:"traffic_gb"`
+	BandwidthMbps   pgtype.Int4 `json:"bandwidth_mbps"`
+	Ipv4Count       int32       `json:"ipv4_count"`
+	Ipv6Count       int32       `json:"ipv6_count"`
+	NatPortCount    int32       `json:"nat_port_count"`
+	Virtualization  string      `json:"virtualization"`
+	BillingCycle    string      `json:"billing_cycle"`
+	PriceMinor      int64       `json:"price_minor"`
+	Currency        string      `json:"currency"`
+	StockMode       string      `json:"stock_mode"`
 }
 
 func (q *Queries) ListActiveProductsAndPlans(ctx context.Context) ([]ListActiveProductsAndPlansRow, error) {

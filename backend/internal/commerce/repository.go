@@ -38,7 +38,7 @@ func (r *PostgresRepository) ListCatalog(ctx context.Context) ([]CatalogItem, er
 	}
 	items := make([]CatalogItem, 0, len(rows))
 	for _, row := range rows {
-		item := CatalogItem{ProductID: row.ProductID, ProductSlug: row.ProductSlug, ProductName: row.ProductNameI18n, Description: row.DescriptionI18n, PlanID: row.PlanID, PlanSlug: row.PlanSlug, PlanName: row.PlanNameI18n, MemoryMB: row.MemoryMb, DiskGB: row.DiskGb, IPv4Count: row.Ipv4Count, IPv6Count: row.Ipv6Count, NATPortCount: row.NatPortCount, Virtualization: row.Virtualization, BillingCycle: row.BillingCycle, PriceMinor: row.PriceMinor, Currency: row.Currency}
+		item := CatalogItem{ProductID: row.ProductID, ProductSlug: row.ProductSlug, ProductName: row.ProductNameI18n, Description: row.DescriptionI18n, PlanID: row.PlanID, PlanSlug: row.PlanSlug, PlanName: row.PlanNameI18n, CPUCores: row.CpuCores, MemoryMB: row.MemoryMb, DiskGB: row.DiskGb, IPv4Count: row.Ipv4Count, IPv6Count: row.Ipv6Count, NATPortCount: row.NatPortCount, Virtualization: row.Virtualization, BillingCycle: row.BillingCycle, PriceMinor: row.PriceMinor, Currency: row.Currency}
 		if row.TrafficGb.Valid {
 			value := row.TrafficGb.Int64
 			item.TrafficGB = &value
@@ -100,7 +100,7 @@ func (r *PostgresRepository) CreateOrder(ctx context.Context, userID, planID uui
 	if err != nil {
 		return Order{}, err
 	}
-	planSnapshot, err := json.Marshal(map[string]any{"id": plan.ID, "slug": plan.Slug, "name_i18n": json.RawMessage(plan.NameI18n), "memory_mb": plan.MemoryMb, "disk_gb": plan.DiskGb, "billing_cycle": plan.BillingCycle, "price_minor": plan.PriceMinor, "currency": plan.Currency, "virtualization": plan.Virtualization})
+	planSnapshot, err := json.Marshal(map[string]any{"id": plan.ID, "slug": plan.Slug, "name_i18n": json.RawMessage(plan.NameI18n), "cpu_cores": plan.CpuCores, "memory_mb": plan.MemoryMb, "disk_gb": plan.DiskGb, "billing_cycle": plan.BillingCycle, "price_minor": plan.PriceMinor, "currency": plan.Currency, "virtualization": plan.Virtualization})
 	if err != nil {
 		return Order{}, err
 	}
