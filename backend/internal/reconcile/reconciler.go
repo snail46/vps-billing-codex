@@ -213,7 +213,7 @@ func (p *Processor) reconcileInstances(ctx context.Context) (int, error) {
 			state = "unknown"
 		}
 		var version int64
-		if err = p.pool.QueryRow(ctx, `UPDATE instances SET provider_instance_id=$2,observed_state=$3,last_synced_at=now(),version=version+CASE WHEN observed_state<>$3 THEN 1 ELSE 0 END,updated_at=now() WHERE id=$1 RETURNING version`, item.id, observed.ProviderInstanceID, state).Scan(&version); err != nil {
+		if err = p.pool.QueryRow(ctx, `UPDATE instances SET provider_instance_id=$2,observed_state=$3::varchar,last_synced_at=now(),version=version+CASE WHEN observed_state<>$3::varchar THEN 1 ELSE 0 END,updated_at=now() WHERE id=$1 RETURNING version`, item.id, observed.ProviderInstanceID, state).Scan(&version); err != nil {
 			return processed, err
 		}
 		processed++
