@@ -106,7 +106,11 @@ func TestOperationQueueRetryAndRecovery(t *testing.T) {
 		t.Fatal(err)
 	}
 	if retrying.Status != "retrying" || retrying.RetryCount != 1 || retrying.ErrorCode == nil || *retrying.ErrorCode != "PROVIDER_TEMPORARY" {
-		t.Fatalf("unexpected retry state: %+v", retrying)
+		var rawCode, rawMessage *string
+		if queryErr := pool.QueryRow(ctx, `SELECT error_code,error_message FROM operations WHERE id=$1`, operationID).Scan(&rawCode, &rawMessage); queryErr != nil {
+			t.Fatal(queryErr)
+		}
+		t.Fatalf("unexpected retry state: %+v; raw_code=%v raw_message=%v", retrying, stringValue(rawCode), stringValue(rawMessage))
 	}
 	if _, err := pool.Exec(ctx, `UPDATE operations SET next_attempt_at=now() WHERE id=$1`, operationID); err != nil {
 		t.Fatal(err)
@@ -130,4 +134,11 @@ func TestOperationQueueRetryAndRecovery(t *testing.T) {
 	if _, err := service.GetForUser(ctx, uuid.New(), operationID); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("foreign user GetForUser() error = %v", err)
 	}
+}
+
+func stringValue(value *string) string {
+	if value == nil {
+		return "<nil>"
+	}
+	return *value
 }
