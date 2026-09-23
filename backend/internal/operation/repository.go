@@ -195,6 +195,74 @@ func (r *PostgresRepository) ScheduleRetry(ctx context.Context, current db.Opera
 	return tx.Commit(ctx)
 }
 
+// RecoverStuck requeues operations whose owning worker stopped heartbeating.
+// PostgreSQL and the transactional outbox are the recovery source; a fresh
+// queue event means recovery does not depend on the original Redis message.
+func (r *PostgresRepository) RecoverStuck(ctx context.Context, cutoff time.Time, batchSize int) (int, error) {
+	if batchSize <= 0 {
+		return 0, ErrInvalidRequest
+	}
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	rows, err := tx.Query(ctx, `SELECT id FROM operations
+		WHERE status IN ('running','waiting_provider','waiting_resource','verifying') AND heartbeat_at IS NOT NULL AND heartbeat_at < $1
+		ORDER BY heartbeat_at FOR UPDATE SKIP LOCKED LIMIT $2`, cutoff.UTC(), batchSize)
+	if err != nil {
+		return 0, err
+	}
+	var ids []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if err = rows.Scan(&id); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		ids = append(ids, id)
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return 0, err
+	}
+	queries := db.New(tx)
+	for _, id := range ids {
+		result, updateErr := tx.Exec(ctx, `UPDATE operations SET
+			status=CASE WHEN retry_count < max_retries THEN 'queued' ELSE 'failed' END,
+			phase=CASE WHEN retry_count < max_retries THEN 'queued' ELSE 'failed' END,
+			progress=CASE WHEN retry_count < max_retries THEN 0 ELSE 100 END,
+			message_key=CASE WHEN retry_count < max_retries THEN 'operation.queued' ELSE 'operation.failed' END,
+			retryable=retry_count < max_retries,
+			retry_count=CASE WHEN retry_count < max_retries THEN retry_count+1 ELSE retry_count END,
+			error_code='WORKER_HEARTBEAT_EXPIRED',error_message='worker heartbeat expired',
+			heartbeat_at=NULL,finished_at=CASE WHEN retry_count < max_retries THEN NULL ELSE now() END,updated_at=now()
+			WHERE id=$1 AND status IN ('running','waiting_provider','waiting_resource','verifying')`, id)
+		if updateErr != nil {
+			return 0, updateErr
+		}
+		if result.RowsAffected() == 0 {
+			continue
+		}
+		updated, getErr := queries.GetOperationByID(ctx, id)
+		if getErr != nil {
+			return 0, getErr
+		}
+		eventType := "operation.updated.v1"
+		if updated.Status == "queued" {
+			eventType = "operation.queued.v1"
+		}
+		if eventErr := createEvent(ctx, queries, eventType, updated, map[string]any{"recovery": "worker_heartbeat_expired"}); eventErr != nil {
+			return 0, eventErr
+		}
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return 0, err
+	}
+	return len(ids), nil
+}
+
 func (r *PostgresRepository) mutate(ctx context.Context, operationID uuid.UUID, mutation func(*db.Queries) (db.Operation, error)) error {
 	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {

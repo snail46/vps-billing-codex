@@ -89,12 +89,12 @@
 - [x] Contract tests
 
 ## Phase 11 — Reconciler / Resilience
-- [ ] desired vs observed
-- [ ] stuck operations
-- [ ] expired reservations
-- [ ] node heartbeat expiry
-- [ ] create-success-but-timeout
-- [ ] Redis restart / worker crash
+- [x] desired vs observed
+- [x] stuck operations
+- [x] expired reservations
+- [x] node heartbeat expiry
+- [x] create-success-but-timeout
+- [x] Redis restart / worker crash
 
 ## Phase 12 — Release Hardening
 - [ ] security

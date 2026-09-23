@@ -105,6 +105,26 @@ func TestUnsupportedCapabilityIsNormalized(t *testing.T) {
 	}
 }
 
+func TestCreateSuccessButResponseLostDoesNotCreateSecondInstance(t *testing.T) {
+	adapter := New()
+	request := providercontract.CreateInstanceRequest{OperationID: "lost-response-operation", IdempotencyKey: "lost-response-key", NodeID: "node-1", InstanceID: "instance-lost-response", CPUCores: 1, MemoryMB: 1024, DiskGB: 20, Image: "ubuntu-24.04"}
+	// The first response is intentionally discarded to model a successful
+	// provider create followed by a network timeout at the caller.
+	if _, err := adapter.CreateInstance(context.Background(), request); err != nil {
+		t.Fatal(err)
+	}
+	replayed, err := adapter.CreateInstance(context.Background(), request)
+	if err != nil || !replayed.Accepted {
+		t.Fatalf("replayed create = %#v, %v", replayed, err)
+	}
+	adapter.mu.RLock()
+	instanceCount := len(adapter.instances)
+	adapter.mu.RUnlock()
+	if instanceCount != 1 {
+		t.Fatalf("provider created %d instances after response loss", instanceCount)
+	}
+}
+
 func providerErrorCode(err error) string {
 	var providerErr *providercontract.Error
 	if errors.As(err, &providerErr) {

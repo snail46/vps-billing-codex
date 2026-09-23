@@ -2,6 +2,7 @@ package operation
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"sync"
@@ -169,6 +170,110 @@ func TestInstanceAllowsOnlyOneActiveAction(t *testing.T) {
 	}
 	if _, err := service.Create(ctx, conflict); err != nil {
 		t.Fatalf("action after completion error=%v", err)
+	}
+}
+
+func TestQueueReclaimsMessageAfterWorkerCrash(t *testing.T) {
+	databaseURL, redisURL := os.Getenv("TEST_DATABASE_URL"), os.Getenv("TEST_REDIS_URL")
+	if databaseURL == "" || redisURL == "" {
+		t.Skip("TEST_DATABASE_URL and TEST_REDIS_URL are required")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	if err := migrations.Run(ctx, databaseURL); err != nil {
+		t.Fatal(err)
+	}
+	pool, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	options, err := redis.ParseURL(redisURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	options.DB = 2
+	redisClient := redis.NewClient(options)
+	defer func() { _ = redisClient.Close() }()
+	if err = redisClient.FlushDB(ctx).Err(); err != nil {
+		t.Fatal(err)
+	}
+	repository := NewPostgresRepository(pool)
+	created, err := NewService(repository).Create(ctx, CreateRequest{Type: "test.crash", ResourceType: "instance", ResourceID: uuid.New(), IdempotencyKey: "crash-" + uuid.NewString(), TraceID: uuid.NewString(), MaxRetries: 2, Steps: []StepDefinition{{Key: "recover", Order: 1}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, _ := json.Marshal(map[string]any{"data": map[string]any{"operation_id": created.ID}})
+	if _, err = redisClient.XAdd(ctx, &redis.XAddArgs{Stream: operationQueue, Values: map[string]any{"event_type": "operation.queued.v1", "payload": string(payload)}}).Result(); err != nil {
+		t.Fatal(err)
+	}
+	if err = redisClient.XGroupCreateMkStream(ctx, operationQueue, consumerGroup, "0").Err(); err != nil && !stringsContains(err.Error(), "BUSYGROUP") {
+		t.Fatal(err)
+	}
+	streams, err := redisClient.XReadGroup(ctx, &redis.XReadGroupArgs{Group: consumerGroup, Consumer: "crashed-worker", Streams: []string{operationQueue, ">"}, Count: 1}).Result()
+	if err != nil || len(streams) != 1 || len(streams[0].Messages) != 1 {
+		t.Fatalf("crashed worker read = %#v, %v", streams, err)
+	}
+	registry := NewWorkflowRegistry()
+	if err = registry.Register("test.crash", WorkflowFunc(func(workflowContext context.Context, execution *Execution) error {
+		return execution.Step(workflowContext, "recover", "succeeded", 100, "", nil, map[string]any{"recovered": true})
+	})); err != nil {
+		t.Fatal(err)
+	}
+	consumer := NewQueueConsumer(repository, redisClient, registry, "replacement-worker")
+	consumer.pendingIdle = 0
+	if processed, processErr := consumer.ProcessBatch(ctx); processErr != nil || processed != 1 {
+		t.Fatalf("replacement ProcessBatch() = %d, %v", processed, processErr)
+	}
+	current, err := repository.Get(ctx, created.ID)
+	if err != nil || current.Status != "succeeded" {
+		t.Fatalf("recovered operation = %s, %v", current.Status, err)
+	}
+}
+
+func TestOutboxSurvivesRedisConnectionFailure(t *testing.T) {
+	databaseURL, redisURL := os.Getenv("TEST_DATABASE_URL"), os.Getenv("TEST_REDIS_URL")
+	if databaseURL == "" || redisURL == "" {
+		t.Skip("TEST_DATABASE_URL and TEST_REDIS_URL are required")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	if err := migrations.Run(ctx, databaseURL); err != nil {
+		t.Fatal(err)
+	}
+	pool, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	created, err := NewService(NewPostgresRepository(pool)).Create(ctx, CreateRequest{Type: "test.redis", ResourceType: "instance", ResourceID: uuid.New(), IdempotencyKey: "redis-" + uuid.NewString(), TraceID: uuid.NewString(), MaxRetries: 1, Steps: []StepDefinition{{Key: "test", Order: 1}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	badRedis := redis.NewClient(&redis.Options{Addr: "127.0.0.1:1", DialTimeout: 20 * time.Millisecond, ReadTimeout: 20 * time.Millisecond, WriteTimeout: 20 * time.Millisecond, MaxRetries: 0})
+	if _, err = outbox.NewDispatcher(pool, badRedis).ProcessBatch(ctx); err == nil {
+		t.Fatal("dispatcher unexpectedly published while Redis was unavailable")
+	}
+	_ = badRedis.Close()
+	var status string
+	if err = pool.QueryRow(ctx, `SELECT status FROM outbox_events WHERE aggregate_id=$1 AND event_type='operation.queued.v1'`, created.ID).Scan(&status); err != nil || status != "pending" {
+		t.Fatalf("outbox after outage = %q, %v", status, err)
+	}
+	options, _ := redis.ParseURL(redisURL)
+	options.DB = 3
+	goodRedis := redis.NewClient(options)
+	defer func() { _ = goodRedis.Close() }()
+	if err = goodRedis.FlushDB(ctx).Err(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `UPDATE outbox_events SET next_attempt_at=now() WHERE aggregate_id=$1`, created.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = outbox.NewDispatcher(pool, goodRedis).ProcessBatch(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if length, lengthErr := goodRedis.XLen(ctx, operationQueue).Result(); lengthErr != nil || length < 1 {
+		t.Fatalf("recovered queue length = %d, %v", length, lengthErr)
 	}
 }
 

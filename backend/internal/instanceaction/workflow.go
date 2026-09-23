@@ -59,10 +59,13 @@ func (w *Workflow) Execute(ctx context.Context, execution *operation.Execution) 
 	if action == "stop" {
 		desired, transitional, expected = "stopped", "stopping", "stopped"
 	}
+	if action == "suspend" {
+		desired, transitional, expected = "suspended", "suspending", "stopped"
+	}
 	if action == "reinstall" {
 		transitional = "reinstalling"
 	}
-	if action != "start" && action != "stop" && action != "restart" && action != "reinstall" {
+	if action != "start" && action != "stop" && action != "suspend" && action != "restart" && action != "reinstall" {
 		return workflowError("UNSUPPORTED_OPERATION", false, fmt.Errorf("unknown action %s", action))
 	}
 	if err := execution.Progress(ctx, "running", "validate", 5, "operation.instance.validating"); err != nil {
@@ -91,6 +94,8 @@ func (w *Workflow) Execute(ctx context.Context, execution *operation.Execution) 
 		providerOperation, err = adapter.StartInstance(ctx, request)
 	case "stop":
 		providerOperation, err = adapter.StopInstance(ctx, request)
+	case "suspend":
+		providerOperation, err = adapter.StopInstance(ctx, request)
 	case "restart":
 		providerOperation, err = adapter.RestartInstance(ctx, request)
 	case "reinstall":
@@ -112,10 +117,14 @@ func (w *Workflow) Execute(ctx context.Context, execution *operation.Execution) 
 	if instance.State != expected {
 		return workflowError("INSTANCE_STATE_MISMATCH", true, fmt.Errorf("expected %s, observed %s", expected, instance.State))
 	}
-	if err := w.repository.setObserved(ctx, current.instanceID, instance.State); err != nil {
+	observed := instance.State
+	if action == "suspend" {
+		observed = "suspended"
+	}
+	if err := w.repository.setObserved(ctx, current.instanceID, observed); err != nil {
 		return workflowError("INSTANCE_STATE_UPDATE_FAILED", true, err)
 	}
-	if err := execution.Step(ctx, "verify", "succeeded", 100, "", nil, map[string]any{"state": instance.State}); err != nil {
+	if err := execution.Step(ctx, "verify", "succeeded", 100, "", nil, map[string]any{"state": observed}); err != nil {
 		return err
 	}
 	return execution.Progress(ctx, "running", "finish", 99, "operation.instance.completed")

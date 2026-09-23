@@ -20,19 +20,28 @@ const (
 )
 
 type QueueConsumer struct {
-	repository *PostgresRepository
-	redis      *redis.Client
-	registry   *WorkflowRegistry
-	consumer   string
+	repository  *PostgresRepository
+	redis       *redis.Client
+	registry    *WorkflowRegistry
+	consumer    string
+	pendingIdle time.Duration
 }
 
 func NewQueueConsumer(repository *PostgresRepository, redisClient *redis.Client, registry *WorkflowRegistry, consumer string) *QueueConsumer {
-	return &QueueConsumer{repository: repository, redis: redisClient, registry: registry, consumer: consumer}
+	return &QueueConsumer{repository: repository, redis: redisClient, registry: registry, consumer: consumer, pendingIdle: 2 * time.Minute}
 }
 
 func (c *QueueConsumer) ProcessBatch(ctx context.Context) (int, error) {
 	if err := c.redis.XGroupCreateMkStream(ctx, operationQueue, consumerGroup, "0").Err(); err != nil && !stringsContains(err.Error(), "BUSYGROUP") {
 		return 0, err
+	}
+	claimed, _, err := c.redis.XAutoClaim(ctx, &redis.XAutoClaimArgs{Stream: operationQueue, Group: consumerGroup, Consumer: c.consumer, MinIdle: c.pendingIdle, Start: "0-0", Count: 10}).Result()
+	if err != nil && !errors.Is(err, redis.Nil) {
+		return 0, err
+	}
+	processed, err := c.processMessages(ctx, claimed)
+	if err != nil || processed > 0 {
+		return processed, err
 	}
 	streams, err := c.redis.XReadGroup(ctx, &redis.XReadGroupArgs{Group: consumerGroup, Consumer: c.consumer, Streams: []string{operationQueue, ">"}, Count: 10, Block: 10 * time.Millisecond}).Result()
 	if errors.Is(err, redis.Nil) {
@@ -41,17 +50,27 @@ func (c *QueueConsumer) ProcessBatch(ctx context.Context) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	processed := 0
+	processed = 0
 	for _, stream := range streams {
-		for _, message := range stream.Messages {
-			if err := c.processMessage(ctx, message); err != nil {
-				return processed, err
-			}
-			if err := c.redis.XAck(ctx, operationQueue, consumerGroup, message.ID).Err(); err != nil {
-				return processed, err
-			}
-			processed++
+		count, processErr := c.processMessages(ctx, stream.Messages)
+		processed += count
+		if processErr != nil {
+			return processed, processErr
 		}
+	}
+	return processed, nil
+}
+
+func (c *QueueConsumer) processMessages(ctx context.Context, messages []redis.XMessage) (int, error) {
+	processed := 0
+	for _, message := range messages {
+		if err := c.processMessage(ctx, message); err != nil {
+			return processed, err
+		}
+		if err := c.redis.XAck(ctx, operationQueue, consumerGroup, message.ID).Err(); err != nil {
+			return processed, err
+		}
+		processed++
 	}
 	return processed, nil
 }

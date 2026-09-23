@@ -18,6 +18,7 @@ import (
 	providermock "vps-billing/backend/internal/provider/mock"
 	runmanprovider "vps-billing/backend/internal/provider/runman"
 	"vps-billing/backend/internal/provision"
+	"vps-billing/backend/internal/reconcile"
 	"vps-billing/backend/internal/runman"
 	"vps-billing/backend/internal/subscription"
 	workerapp "vps-billing/backend/internal/worker"
@@ -69,7 +70,7 @@ func main() {
 		os.Exit(1)
 	}
 	instanceActionWorkflow := instanceaction.NewWorkflow(instanceaction.NewRepository(postgresClient.Pool()), providerRegistry)
-	for _, action := range []string{"start", "stop", "restart", "reinstall"} {
+	for _, action := range []string{"start", "stop", "suspend", "restart", "reinstall"} {
 		if err := workflowRegistry.Register(action, instanceActionWorkflow); err != nil {
 			logger.Error("instance action workflow registration failed", "action", action, "error", err)
 			os.Exit(1)
@@ -83,6 +84,7 @@ func main() {
 		outbox.NewDispatcher(postgresClient.Pool(), redisClient.Raw()),
 		provision.NewTriggerConsumer(provisionRepository, redisClient.Raw(), consumerName),
 		operation.NewRetryScheduler(operationRepository),
+		reconcile.New(postgresClient.Pool(), providerRegistry, operation.NewService(operationRepository), operationRepository),
 		operation.NewQueueConsumer(operationRepository, redisClient.Raw(), workflowRegistry, consumerName),
 		subscription.NewLifecycleProcessor(postgresClient.Pool(), settings.SubscriptionGracePeriod),
 	)
