@@ -47,6 +47,14 @@ docker compose -f deploy/docker-compose.yml up --build
 `http://localhost:8080/admin/`，健康检查位于
 `http://localhost:8080/health/live` 和 `/health/ready`。
 
+首次管理员需显式创建；请先替换开发密钥，再在 server 容器中执行：
+
+```sh
+docker compose -f deploy/docker-compose.yml exec \
+  -e ADMIN_BOOTSTRAP_PASSWORD='replace-with-a-strong-secret' \
+  server /app/bootstrap-admin --email admin@example.com --display-name Administrator
+```
+
 ## 首批 Provider 方向
 Direct Provider：
 - LXDAPI: https://github.com/xkatld/lxdapi-web-server

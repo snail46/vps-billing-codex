@@ -28,7 +28,7 @@ jobs:
         run: test -z "$(gofmt -l .)"
       - run: go vet ./...
       - run: go test -race ./...
-      - run: go build ./cmd/server ./cmd/worker ./cmd/migrate
+      - run: go build ./cmd/server ./cmd/worker ./cmd/migrate ./cmd/bootstrap-admin
 
   frontend:
     runs-on: ubuntu-latest
@@ -53,6 +53,23 @@ jobs:
         run: docker compose -f deploy/docker-compose.yml up --build --detach --wait
       - name: Verify gateway health
         run: curl --fail --show-error http://localhost:8080/health/ready
+      - name: Verify identity session and CSRF flow
+        run: |
+          response=$(curl --fail --show-error --cookie-jar /tmp/user.cookies \
+            -H 'Content-Type: application/json' \
+            -d '{"email":"ci-user@example.com","password":"ci-password-is-long-enough","locale":"en-US","timezone":"UTC"}' \
+            http://localhost:8080/api/v1/auth/register)
+          csrf=$(echo "$response" | jq -er '.data.csrf_token')
+          curl --fail --show-error --cookie /tmp/user.cookies http://localhost:8080/api/v1/auth/me
+          curl --fail --show-error --cookie /tmp/user.cookies -H "X-CSRF-Token: $csrf" -X POST http://localhost:8080/api/v1/auth/logout
+          docker compose -f deploy/docker-compose.yml exec -T \
+            -e ADMIN_BOOTSTRAP_PASSWORD='ci-admin-password-is-long-enough' \
+            server /app/bootstrap-admin --email ci-admin@example.com --display-name CI
+          admin_response=$(curl --fail --show-error --cookie-jar /tmp/admin.cookies \
+            -H 'Content-Type: application/json' \
+            -d '{"email":"ci-admin@example.com","password":"ci-admin-password-is-long-enough"}' \
+            http://localhost:8080/api/v1/admin/auth/login)
+          echo "$admin_response" | jq -e '.data.principal.permissions | index("admins.manage")'
       - name: Show service logs
         if: failure()
         run: docker compose -f deploy/docker-compose.yml logs

@@ -6,10 +6,34 @@ package sqlc
 
 import (
 	"context"
+
+	"github.com/google/uuid"
 )
 
 type Querier interface {
+	AssignAdminRole(ctx context.Context, arg AssignAdminRoleParams) error
+	CreateAdmin(ctx context.Context, arg CreateAdminParams) (Admin, error)
+	CreateAdminSession(ctx context.Context, arg CreateAdminSessionParams) (AdminSession, error)
+	CreateAuditEvent(ctx context.Context, arg CreateAuditEventParams) error
+	CreateUser(ctx context.Context, arg CreateUserParams) (User, error)
+	CreateUserSession(ctx context.Context, arg CreateUserSessionParams) (UserSession, error)
 	DatabasePing(ctx context.Context) (int32, error)
+	EnableAdminTOTP(ctx context.Context, adminID uuid.UUID) error
+	GetActiveAdminSession(ctx context.Context, tokenHash []byte) (GetActiveAdminSessionRow, error)
+	GetActiveUserSession(ctx context.Context, tokenHash []byte) (GetActiveUserSessionRow, error)
+	GetAdminByEmail(ctx context.Context, email string) (Admin, error)
+	GetAdminByID(ctx context.Context, id uuid.UUID) (Admin, error)
+	GetAdminTOTPSecret(ctx context.Context, adminID uuid.UUID) (AdminTotpSecret, error)
+	GetUserByEmail(ctx context.Context, email string) (User, error)
+	GetUserByID(ctx context.Context, id uuid.UUID) (User, error)
+	ListAdminPermissions(ctx context.Context, adminID uuid.UUID) ([]string, error)
+	RevokeAdminSession(ctx context.Context, tokenHash []byte) error
+	RevokeUserSession(ctx context.Context, tokenHash []byte) error
+	TouchAdminSession(ctx context.Context, id uuid.UUID) error
+	TouchUserSession(ctx context.Context, id uuid.UUID) error
+	UpdateAdminLastLogin(ctx context.Context, id uuid.UUID) error
+	UpdateUserLastLogin(ctx context.Context, id uuid.UUID) error
+	UpsertAdminTOTPSecret(ctx context.Context, arg UpsertAdminTOTPSecretParams) error
 }
 
 var _ Querier = (*Queries)(nil)

@@ -8,12 +8,16 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"vps-billing/backend/internal/audit"
 	"vps-billing/backend/internal/config"
 	"vps-billing/backend/internal/http/health"
+	identityhttp "vps-billing/backend/internal/http/identity"
 	"vps-billing/backend/internal/http/middleware"
+	"vps-billing/backend/internal/identity"
 	"vps-billing/backend/internal/infrastructure/postgres"
 	"vps-billing/backend/internal/infrastructure/rediscache"
 	platformruntime "vps-billing/backend/internal/platform/runtime"
+	"vps-billing/backend/internal/security/ratelimit"
 	serverapp "vps-billing/backend/internal/server"
 )
 
@@ -51,7 +55,9 @@ func run(logger *slog.Logger) error {
 
 	router := chi.NewRouter()
 	health.New(postgresClient, redisClient, logger).Register(router)
-	handler := middleware.Correlation(logger, middleware.AccessLog(logger, router))
+	identityService := identity.NewService(identity.NewPostgresRepository(postgresClient.Pool()), settings.UserSessionSecret, settings.AdminSessionSecret, settings.UserCSRFSecret, settings.AdminCSRFSecret, settings.AdminTOTPEncryptionKey, settings.SessionTTL)
+	identityhttp.New(identityService, ratelimit.New(redisClient.Raw(), "auth:"), audit.NewPostgresRecorder(postgresClient.Pool()), settings.CookieSecure).Register(router)
+	handler := middleware.Correlation(logger, middleware.AccessLog(logger, middleware.CORS([]string{settings.UserWebOrigin, settings.AdminWebOrigin}, router)))
 
 	server, err := serverapp.New(settings.ServerAddress, handler, logger)
 	if err != nil {

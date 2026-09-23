@@ -25,6 +25,34 @@ CREATE TABLE admins (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
+CREATE TABLE user_sessions (
+  id uuid PRIMARY KEY,
+  user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  token_hash bytea NOT NULL UNIQUE,
+  expires_at timestamptz NOT NULL,
+  last_seen_at timestamptz NOT NULL DEFAULT now(),
+  revoked_at timestamptz,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE admin_sessions (
+  id uuid PRIMARY KEY,
+  admin_id uuid NOT NULL REFERENCES admins(id) ON DELETE CASCADE,
+  token_hash bytea NOT NULL UNIQUE,
+  expires_at timestamptz NOT NULL,
+  last_seen_at timestamptz NOT NULL DEFAULT now(),
+  revoked_at timestamptz,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE admin_totp_secrets (
+  admin_id uuid PRIMARY KEY REFERENCES admins(id) ON DELETE CASCADE,
+  ciphertext bytea NOT NULL,
+  nonce bytea NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  verified_at timestamptz
+);
+
 CREATE TABLE roles (
   id uuid PRIMARY KEY,
   key varchar(128) NOT NULL UNIQUE,

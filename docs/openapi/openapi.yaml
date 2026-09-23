@@ -2,47 +2,146 @@ openapi: 3.1.0
 info:
   title: VPS Billing Platform API
   version: 1.0.0
+  license: {name: Proprietary}
 servers:
   - url: /api/v1
+security: [{userSession: []}]
 paths:
   /health/live:
     get:
+      summary: Check process liveness
+      security: []
       operationId: healthLive
       responses:
         "200": {description: Alive}
   /health/ready:
     get:
+      summary: Check dependency readiness
+      security: []
       operationId: healthReady
       responses:
         "200": {description: Ready}
         "503": {description: Not ready}
   /auth/register:
     post:
+      summary: Register a user account
+      security: []
       operationId: register
+      requestBody: {$ref: "#/components/requestBodies/UserRegistration"}
       responses:
-        "201": {description: Registered}
+        "201":
+          description: Registered
+          headers: {Set-Cookie: {$ref: "#/components/headers/SessionCookie"}}
+          content: {application/json: {schema: {$ref: "#/components/schemas/UserAuthResponse"}}}
+        "409": {$ref: "#/components/responses/Conflict"}
+        "422": {$ref: "#/components/responses/ValidationFailure"}
+        "429": {$ref: "#/components/responses/RateLimited"}
   /auth/login:
     post:
+      summary: Log in a user
+      security: []
       operationId: login
+      requestBody: {$ref: "#/components/requestBodies/Login"}
       responses:
-        "200": {description: Logged in}
-        "401": {description: Invalid credentials}
+        "200":
+          description: Logged in
+          headers: {Set-Cookie: {$ref: "#/components/headers/SessionCookie"}}
+          content: {application/json: {schema: {$ref: "#/components/schemas/UserAuthResponse"}}}
+        "401": {$ref: "#/components/responses/Unauthenticated"}
+        "429": {$ref: "#/components/responses/RateLimited"}
   /auth/me:
     get:
+      summary: Get the current user
       operationId: getCurrentUser
       responses:
-        "200": {description: Current user}
+        "200":
+          description: Current user
+          content: {application/json: {schema: {$ref: "#/components/schemas/UserAuthResponse"}}}
+        "401": {$ref: "#/components/responses/Unauthenticated"}
+  /auth/logout:
+    post:
+      summary: Log out the current user
+      operationId: logoutUser
+      parameters: [{$ref: "#/components/parameters/CSRFToken"}]
+      responses:
+        "200": {description: Logged out}
+        "401": {$ref: "#/components/responses/Unauthenticated"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+  /admin/auth/login:
+    post:
+      summary: Log in an administrator
+      security: []
+      operationId: loginAdmin
+      requestBody: {$ref: "#/components/requestBodies/Login"}
+      responses:
+        "200":
+          description: Logged in
+          headers: {Set-Cookie: {$ref: "#/components/headers/SessionCookie"}}
+          content: {application/json: {schema: {$ref: "#/components/schemas/AdminAuthResponse"}}}
+        "401": {$ref: "#/components/responses/Unauthenticated"}
+        "429": {$ref: "#/components/responses/RateLimited"}
+  /admin/auth/me:
+    get:
+      summary: Get the current administrator
+      security: [{adminSession: []}]
+      operationId: getCurrentAdmin
+      responses:
+        "200": {description: Current administrator, content: {application/json: {schema: {$ref: "#/components/schemas/AdminAuthResponse"}}}}
+        "401": {$ref: "#/components/responses/Unauthenticated"}
+  /admin/auth/logout:
+    post:
+      summary: Log out the current administrator
+      security: [{adminSession: []}]
+      operationId: logoutAdmin
+      parameters: [{$ref: "#/components/parameters/CSRFToken"}]
+      responses:
+        "200": {description: Logged out}
+        "401": {$ref: "#/components/responses/Unauthenticated"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+  /admin/auth/totp/setup:
+    post:
+      summary: Start administrator TOTP enrollment
+      security: [{adminSession: []}]
+      operationId: setupAdminTOTP
+      parameters: [{$ref: "#/components/parameters/CSRFToken"}]
+      responses:
+        "200": {description: Encrypted TOTP enrollment secret created}
+        "401": {$ref: "#/components/responses/Unauthenticated"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+  /admin/auth/totp/enable:
+    post:
+      summary: Verify and enable administrator TOTP
+      security: [{adminSession: []}]
+      operationId: enableAdminTOTP
+      parameters: [{$ref: "#/components/parameters/CSRFToken"}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code]
+              additionalProperties: false
+              properties: {code: {type: string, pattern: "^[0-9]{6}$"}}
+      responses:
+        "200": {description: TOTP enabled}
+        "401": {$ref: "#/components/responses/Unauthenticated"}
+        "403": {$ref: "#/components/responses/Forbidden"}
   /products:
     get:
+      summary: List products
+      security: []
       operationId: listProducts
       responses:
         "200": {description: Products}
   /orders:
     get:
+      summary: List user orders
       operationId: listOrders
       responses:
         "200": {description: Orders}
     post:
+      summary: Create an order
       operationId: createOrder
       requestBody:
         required: true
@@ -59,11 +158,13 @@ paths:
         "422": {description: Validation failure}
   /instances:
     get:
+      summary: List user instances
       operationId: listInstances
       responses:
         "200": {description: Instances}
   /instances/{id}:
     get:
+      summary: Get an instance
       operationId: getInstance
       parameters:
         - $ref: "#/components/parameters/Id"
@@ -72,6 +173,7 @@ paths:
         "404": {description: Not found}
   /instances/{id}/restart:
     post:
+      summary: Queue an instance restart
       operationId: restartInstance
       parameters:
         - $ref: "#/components/parameters/Id"
@@ -84,6 +186,7 @@ paths:
         "409": {description: Conflict}
   /instances/{id}/reinstall:
     post:
+      summary: Queue an instance reinstall
       operationId: reinstallInstance
       parameters:
         - $ref: "#/components/parameters/Id"
@@ -104,6 +207,7 @@ paths:
               schema: {$ref: "#/components/schemas/OperationAccepted"}
   /operations/{id}:
     get:
+      summary: Get an operation
       operationId: getOperation
       parameters:
         - $ref: "#/components/parameters/Id"
@@ -115,6 +219,7 @@ paths:
               schema: {$ref: "#/components/schemas/OperationResponse"}
   /events:
     get:
+      summary: Stream authenticated events
       operationId: streamEvents
       responses:
         "200":
@@ -123,13 +228,105 @@ paths:
             text/event-stream:
               schema: {type: string}
 components:
+  securitySchemes:
+    userSession: {type: apiKey, in: cookie, name: vps_user_session}
+    adminSession: {type: apiKey, in: cookie, name: vps_admin_session}
+  headers:
+    SessionCookie:
+      description: Secure, HttpOnly, SameSite=Strict session cookie (Secure is disabled only in local development).
+      schema: {type: string}
   parameters:
     Id:
       name: id
       in: path
       required: true
       schema: {type: string, format: uuid}
+    CSRFToken:
+      name: X-CSRF-Token
+      in: header
+      required: true
+      schema: {type: string}
+  requestBodies:
+    Login:
+      required: true
+      content:
+        application/json:
+          schema: {$ref: "#/components/schemas/LoginRequest"}
+    UserRegistration:
+      required: true
+      content:
+        application/json:
+          schema: {$ref: "#/components/schemas/UserRegistrationRequest"}
+  responses:
+    Unauthenticated: {description: Authentication required, content: {application/json: {schema: {$ref: "#/components/schemas/ErrorResponse"}}}}
+    Forbidden: {description: Permission or CSRF validation failed, content: {application/json: {schema: {$ref: "#/components/schemas/ErrorResponse"}}}}
+    Conflict: {description: Resource conflict, content: {application/json: {schema: {$ref: "#/components/schemas/ErrorResponse"}}}}
+    ValidationFailure: {description: Validation failure, content: {application/json: {schema: {$ref: "#/components/schemas/ErrorResponse"}}}}
+    RateLimited: {description: Rate limited, content: {application/json: {schema: {$ref: "#/components/schemas/ErrorResponse"}}}}
   schemas:
+    LoginRequest:
+      type: object
+      required: [email, password]
+      additionalProperties: false
+      properties:
+        email: {type: string, format: email, maxLength: 320}
+        password: {type: string, minLength: 12, maxLength: 128}
+        totp_code: {type: string, pattern: "^[0-9]{6}$"}
+    UserRegistrationRequest:
+      allOf:
+        - {$ref: "#/components/schemas/LoginRequest"}
+        - type: object
+          properties:
+            locale: {type: string, enum: [zh-CN, en-US], default: zh-CN}
+            timezone: {type: string, default: UTC}
+    User:
+      type: object
+      required: [id, email, status, locale, timezone]
+      properties:
+        id: {type: string, format: uuid}
+        email: {type: string, format: email}
+        status: {type: string, enum: [active, suspended, disabled]}
+        locale: {type: string, enum: [zh-CN, en-US]}
+        timezone: {type: string}
+    Admin:
+      type: object
+      required: [id, email, status, display_name, two_factor_enabled, permissions]
+      properties:
+        id: {type: string, format: uuid}
+        email: {type: string, format: email}
+        status: {type: string, enum: [active, suspended, disabled]}
+        display_name: {type: string}
+        two_factor_enabled: {type: boolean}
+        permissions: {type: array, items: {type: string}}
+    UserAuthResponse:
+      $ref: "#/components/schemas/AuthResponse"
+    AdminAuthResponse:
+      $ref: "#/components/schemas/AuthResponse"
+    AuthResponse:
+      type: object
+      required: [success, data, request_id]
+      properties:
+        success: {type: boolean, const: true}
+        request_id: {type: string}
+        data:
+          type: object
+          required: [principal, csrf_token]
+          properties:
+            principal: {oneOf: [{$ref: "#/components/schemas/User"}, {$ref: "#/components/schemas/Admin"}]}
+            csrf_token: {type: string}
+    ErrorResponse:
+      type: object
+      required: [success, error, request_id]
+      properties:
+        success: {type: boolean, const: false}
+        request_id: {type: string}
+        error:
+          type: object
+          required: [code, message_key]
+          properties:
+            code: {type: string}
+            message_key: {type: string}
+            details: {type: object, additionalProperties: true}
     OperationAccepted:
       type: object
       required: [success, data, request_id]

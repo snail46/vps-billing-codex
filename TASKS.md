@@ -12,12 +12,12 @@
 **Gate:** 一条 compose 命令启动基础环境。
 
 ## Phase 1 — Identity / RBAC
-- [ ] users/admins
-- [ ] independent sessions
-- [ ] roles/permissions
-- [ ] CSRF/rate limit
-- [ ] audit foundation
-- [ ] zh-CN/en-US
+- [x] users/admins
+- [x] independent sessions
+- [x] roles/permissions
+- [x] CSRF/rate limit
+- [x] audit foundation
+- [x] zh-CN/en-US
 
 ## Phase 2 — Commerce / Finance
 - [ ] products/plans

@@ -31,3 +31,7 @@ func (c *Client) Ping(ctx context.Context) error {
 func (c *Client) Close() {
 	c.pool.Close()
 }
+
+func (c *Client) Pool() *pgxpool.Pool {
+	return c.pool
+}

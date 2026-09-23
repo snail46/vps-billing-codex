@@ -24,3 +24,44 @@ export interface HealthData {
   status: HealthStatus;
   checks?: Record<string, "up" | "down">;
 }
+
+export interface UserPrincipal {
+  id: string;
+  email: string;
+  status: string;
+  locale: "zh-CN" | "en-US";
+  timezone: string;
+}
+
+export interface AdminPrincipal {
+  id: string;
+  email: string;
+  status: string;
+  display_name: string;
+  two_factor_enabled: boolean;
+  permissions: string[];
+}
+
+export interface AuthData<T> {
+  principal: T;
+  csrf_token: string;
+}
+
+export class ApiRequestError extends Error {
+  constructor(public readonly code: string, public readonly messageKey: string) {
+    super(code);
+  }
+}
+
+export async function apiRequest<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(path, {
+    ...init,
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...init?.headers },
+  });
+  const payload = (await response.json()) as ApiResponse<T>;
+  if (!payload.success) {
+    throw new ApiRequestError(payload.error.code, payload.error.message_key);
+  }
+  return payload.data;
+}

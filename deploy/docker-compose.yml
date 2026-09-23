@@ -5,6 +5,14 @@ x-backend-environment: &backend-environment
   SERVER_ADDRESS: ":8080"
   DATABASE_URL: "postgres://${POSTGRES_USER:-vps_billing}:${POSTGRES_PASSWORD:-development-only}@postgres:5432/${POSTGRES_DB:-vps_billing}?sslmode=disable"
   REDIS_URL: "redis://redis:6379/0"
+  USER_WEB_ORIGIN: "http://localhost:${APP_PORT:-8080}"
+  ADMIN_WEB_ORIGIN: "http://localhost:${APP_PORT:-8080}"
+  USER_SESSION_SECRET: "development-user-session-secret-change-before-production"
+  ADMIN_SESSION_SECRET: "development-admin-session-secret-change-before-production"
+  USER_CSRF_SECRET: "development-user-csrf-secret-change-before-production"
+  ADMIN_CSRF_SECRET: "development-admin-csrf-secret-change-before-production"
+  ADMIN_TOTP_ENCRYPTION_KEY: "development-admin-totp-key-change-before-production"
+  COOKIE_SECURE: "false"
   LOG_LEVEL: info
 
 x-backend-build: &backend-build

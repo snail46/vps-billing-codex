@@ -19,9 +19,19 @@ body {
 }
 
 button,
-select {
+select,
+input {
   font: inherit;
 }
+
+.auth-card { margin: 0 auto; max-width: 440px; }
+.auth-form { display: grid; gap: 16px; }
+.form-field { display: grid; font-weight: 600; gap: 6px; }
+.form-input { border: 1px solid #b8c2d4; border-radius: 8px; min-height: 42px; padding: 8px 12px; }
+.form-input:focus-visible { outline: 3px solid rgb(21 94 239 / 30%); outline-offset: 2px; }
+.form-error { color: #b42318; margin: 0; }
+.form-success { color: #067647; margin: 0; }
+.link-button { background: transparent; border: 0; color: #155eef; cursor: pointer; padding: 4px 0; text-align: left; }
 
 .app-shell {
   min-height: 100vh;

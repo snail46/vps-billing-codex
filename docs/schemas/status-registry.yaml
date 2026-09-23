@@ -1,5 +1,10 @@
 version: 1
 
+account:
+  active: {severity: success, zh_CN: "正常", en_US: "Active"}
+  suspended: {severity: warning, zh_CN: "已暂停", en_US: "Suspended"}
+  disabled: {severity: error, zh_CN: "已停用", en_US: "Disabled"}
+
 instance:
   running:
     severity: success
