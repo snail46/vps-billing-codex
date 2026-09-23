@@ -33,3 +33,18 @@ func TestCreateOrderValidation(t *testing.T) {
 		t.Fatalf("error = %v", err)
 	}
 }
+
+func TestEqualJSONIgnoresStorageNormalization(t *testing.T) {
+	original := []byte(`{"event_id":"event-1","amount_minor":9007199254740993,"currency":"USD"}`)
+	storedJSONB := []byte(`{ "currency": "USD", "amount_minor": 9007199254740993, "event_id": "event-1" }`)
+	if !equalJSON(original, storedJSONB) {
+		t.Fatal("semantically equal JSON was rejected")
+	}
+	changedAmount := []byte(`{"event_id":"event-1","amount_minor":9007199254740992,"currency":"USD"}`)
+	if equalJSON(original, changedAmount) {
+		t.Fatal("different JSON numbers were treated as equal")
+	}
+	if equalJSON(original, append(original, []byte(` {}`)...)) {
+		t.Fatal("multiple JSON values were accepted")
+	}
+}

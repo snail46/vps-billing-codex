@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"strings"
 	"time"
@@ -171,7 +172,7 @@ func (r *PostgresRepository) CompletePayment(ctx context.Context, event Webhook,
 		if receiptErr != nil {
 			return PaymentResult{}, receiptErr
 		}
-		if !bytes.Equal(receipt.Payload, payload) {
+		if !equalJSON(receipt.Payload, payload) {
 			return PaymentResult{}, ErrPaymentMismatch
 		}
 		locked, findErr := queries.LockPaymentOrderInvoice(ctx, db.LockPaymentOrderInvoiceParams{ID: event.PaymentID, Gateway: fakeGateway})
@@ -248,6 +249,34 @@ func (r *PostgresRepository) CompletePayment(ctx context.Context, event Webhook,
 		return PaymentResult{}, err
 	}
 	return PaymentResult{PaymentID: locked.PaymentID, OrderID: locked.OrderID}, nil
+}
+
+func equalJSON(left, right []byte) bool {
+	leftCanonical, err := canonicalJSON(left)
+	if err != nil {
+		return false
+	}
+	rightCanonical, err := canonicalJSON(right)
+	if err != nil {
+		return false
+	}
+	return bytes.Equal(leftCanonical, rightCanonical)
+}
+
+func canonicalJSON(payload []byte) ([]byte, error) {
+	decoder := json.NewDecoder(bytes.NewReader(payload))
+	decoder.UseNumber()
+	var value any
+	if err := decoder.Decode(&value); err != nil {
+		return nil, err
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		if err == nil {
+			return nil, errors.New("multiple JSON values")
+		}
+		return nil, err
+	}
+	return json.Marshal(value)
 }
 
 func validateBalanced(entries []db.CreateLedgerEntryParams) error {
