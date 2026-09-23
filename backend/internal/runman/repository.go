@@ -50,7 +50,7 @@ func (s *PostgresStore) Heartbeat(ctx context.Context, node uuid.UUID, h Heartbe
 	if e != nil {
 		return e
 	}
-	_, e = tx.Exec(ctx, `UPDATE nodes SET status='online',last_seen_at=$2,cpu_total=CASE WHEN $3>0 THEN $3 ELSE cpu_total END,memory_total_mb=CASE WHEN $4>0 THEN $4 ELSE memory_total_mb END,disk_total_gb=CASE WHEN $5>0 THEN $5 ELSE disk_total_gb END,capabilities=capabilities||jsonb_build_object('virtualization',$6,'entry_host',$7,'entry_ipv6',$8),updated_at=now() WHERE id=$1`, node, h.Timestamp, h.CPUs, h.RAMTotalMB, h.DiskTotalGB, h.VirtType, h.EntryHost, h.EntryIPv6)
+	_, e = tx.Exec(ctx, `UPDATE nodes SET status='online',last_seen_at=$2,cpu_total=CASE WHEN $3>0 THEN $3 ELSE cpu_total END,memory_total_mb=CASE WHEN $4>0 THEN $4 ELSE memory_total_mb END,disk_total_gb=CASE WHEN $5>0 THEN $5 ELSE disk_total_gb END,capabilities=capabilities||jsonb_build_object('virtualization',$6::text,'entry_host',$7::text,'entry_ipv6',$8::text),updated_at=now() WHERE id=$1`, node, h.Timestamp, h.CPUs, h.RAMTotalMB, h.DiskTotalGB, h.VirtType, h.EntryHost, h.EntryIPv6)
 	if e != nil {
 		return e
 	}
