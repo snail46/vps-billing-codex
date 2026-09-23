@@ -12,7 +12,7 @@ Health：
 
 生产只允许版本 migration。
 
-Identity 必需环境变量：`USER_SESSION_SECRET`、`ADMIN_SESSION_SECRET`、`USER_CSRF_SECRET`、`ADMIN_CSRF_SECRET`、`ADMIN_TOTP_ENCRYPTION_KEY`，每项至少 32 字符且必须各不相同；生产设置 `COOKIE_SECURE=true` 并配置精确的 `USER_WEB_ORIGIN` / `ADMIN_WEB_ORIGIN`。
+Identity 必需环境变量：`USER_SESSION_SECRET`、`ADMIN_SESSION_SECRET`、`USER_CSRF_SECRET`、`ADMIN_CSRF_SECRET`、`ADMIN_TOTP_ENCRYPTION_KEY`，以及内部监控使用的 `METRICS_TOKEN`，每项至少 32 字符且必须各不相同；生产设置 `COOKIE_SECURE=true`、`FAKE_PAYMENT_ENABLED=false` 并配置精确的 HTTPS `USER_WEB_ORIGIN` / `ADMIN_WEB_ORIGIN`。
 
 首次管理员通过容器内命令创建，密码只从进程环境读取：
 
@@ -35,3 +35,5 @@ Direct LXD 部署使用 `provider_type=lxdapi`。Provider `endpoint` 必须为�
 Runman Gateway 默认监听 `RUNMAN_GATEWAY_ADDRESS=:9090`。生产必须同时配置 `RUNMAN_TLS_CERT_FILE` 与 `RUNMAN_TLS_KEY_FILE`；`RUNMAN_INSECURE=true` 只允许非生产本地/CI 环境。先创建 `provider_type=runman` 的 Provider 与 Node；该 Node 的 `provider_node_id` 必须留空（自动回退平台 Node UUID）或显式设置为同一个平台 Node UUID。随后执行 `/app/issue-agent-token --node-id <uuid>`；token 只显示一次，数据库只保存摘要。Agent 使用 `authorization: Bearer <token>` 主动连接 Gateway。负载均衡必须保持长连接；命令与连接状态以 PostgreSQL 为恢复源，因此 Gateway/Worker 重启不会丢失已提交命令。
 
 Worker 每秒运行恢复扫描：2 分钟无 heartbeat 的 Operation 会按 retry budget 重排队；90 秒无 Agent heartbeat 的 Runman Node 标记 offline；终态 Operation 遗留的过期 Reservation 会原子释放；Instance observed state 会从 Provider 周期刷新。Redis 重启期间 Outbox 保持 pending，恢复后继续发布；Worker 崩溃遗留的 Redis Stream pending entry 会由其他 consumer 接管。生产告警应设置在这些恢复阈值之前，避免把自动恢复当作正常稳态。
+
+备份、恢复、升级和回滚步骤见 `docs/21-RELEASE-RUNBOOK.md`。`deploy/scripts/backup.sh` 生成 AES-256-CBC/PBKDF2 加密的 PostgreSQL 与配置备份并写 SHA-256；`restore.sh --confirm` 校验后恢复数据库；`verify-release.sh` 检查 health、安全响应头和内部 Metrics。生产禁止运行 down migration，回滚优先使用上一不可变镜像；需要回退 schema/data 时恢复升级前备份到新数据库。

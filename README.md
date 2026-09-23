@@ -47,6 +47,8 @@ docker compose -f deploy/docker-compose.yml up --build
 `http://localhost:8080/admin/`，健康检查位于
 `http://localhost:8080/health/live` 和 `/health/ready`。
 
+发布前请阅读 `docs/21-RELEASE-RUNBOOK.md`。内部 `/metrics` 仅从 Server 管理网络访问，并要求 `METRICS_TOKEN`；默认 Reverse Proxy 不公开该端点。加密备份、受控恢复和发布验证脚本位于 `deploy/scripts/`。
+
 首次管理员需显式创建；请先替换开发密钥，再在 server 容器中执行：
 
 ```sh

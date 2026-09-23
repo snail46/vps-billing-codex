@@ -8,7 +8,7 @@ import (
 	"github.com/golang-migrate/migrate/v4/source/iofs"
 )
 
-func TestEmbeddedMigrationPair(t *testing.T) {
+func TestEmbeddedMigrationPairs(t *testing.T) {
 	driver, err := iofs.New(migrationFiles, "sql")
 	if err != nil {
 		t.Fatalf("iofs.New() error = %v", err)
@@ -19,19 +19,21 @@ func TestEmbeddedMigrationPair(t *testing.T) {
 		}
 	}()
 
-	up, _, err := driver.ReadUp(1)
-	if err != nil {
-		t.Fatalf("ReadUp(1) error = %v", err)
-	}
-	if err := requireContents(up); err != nil {
-		t.Fatalf("up migration: %v", err)
-	}
-	down, _, err := driver.ReadDown(1)
-	if err != nil {
-		t.Fatalf("ReadDown(1) error = %v", err)
-	}
-	if err := requireContents(down); err != nil {
-		t.Fatalf("down migration: %v", err)
+	for version := uint(1); version <= 12; version++ {
+		up, _, readErr := driver.ReadUp(version)
+		if readErr != nil {
+			t.Fatalf("ReadUp(%d) error = %v", version, readErr)
+		}
+		if contentErr := requireContents(up); contentErr != nil {
+			t.Fatalf("up migration %d: %v", version, contentErr)
+		}
+		down, _, readErr := driver.ReadDown(version)
+		if readErr != nil {
+			t.Fatalf("ReadDown(%d) error = %v", version, readErr)
+		}
+		if contentErr := requireContents(down); contentErr != nil {
+			t.Fatalf("down migration %d: %v", version, contentErr)
+		}
 	}
 }
 

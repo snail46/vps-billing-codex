@@ -13,6 +13,8 @@ import (
 const (
 	readHeaderTimeout = 5 * time.Second
 	shutdownTimeout   = 10 * time.Second
+	idleTimeout       = 60 * time.Second
+	maxHeaderBytes    = 1 << 20
 )
 
 type Server struct {
@@ -39,6 +41,8 @@ func New(address string, handler http.Handler, logger *slog.Logger) (*Server, er
 			Addr:              listener.Addr().String(),
 			Handler:           handler,
 			ReadHeaderTimeout: readHeaderTimeout,
+			IdleTimeout:       idleTimeout,
+			MaxHeaderBytes:    maxHeaderBytes,
 		},
 		listener: listener,
 		logger:   logger,

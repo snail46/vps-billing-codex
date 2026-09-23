@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"strconv"
 	"time"
@@ -23,6 +24,7 @@ type Config struct {
 	AdminCSRFSecret          string
 	AdminTOTPEncryptionKey   string
 	FakePaymentWebhookSecret string
+	MetricsToken             string
 	FakePaymentEnabled       bool
 	SessionTTL               time.Duration
 	SubscriptionGracePeriod  time.Duration
@@ -43,6 +45,7 @@ func Load() (Config, error) {
 		AdminCSRFSecret:          os.Getenv("ADMIN_CSRF_SECRET"),
 		AdminTOTPEncryptionKey:   os.Getenv("ADMIN_TOTP_ENCRYPTION_KEY"),
 		FakePaymentWebhookSecret: os.Getenv("FAKE_PAYMENT_WEBHOOK_SECRET"),
+		MetricsToken:             os.Getenv("METRICS_TOKEN"),
 		SessionTTL:               24 * time.Hour,
 		SubscriptionGracePeriod:  72 * time.Hour,
 	}
@@ -68,6 +71,14 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("configuration: FAKE_PAYMENT_ENABLED: %w", err)
 	}
 	config.FakePaymentEnabled = fakeEnabled
+	if config.Environment == "production" {
+		if config.FakePaymentEnabled {
+			return Config{}, ErrFakePaymentInProduction
+		}
+		if !secureHTTPSOrigin(config.UserWebOrigin) || !secureHTTPSOrigin(config.AdminWebOrigin) {
+			return Config{}, ErrInsecureProductionOrigin
+		}
+	}
 
 	var missing []string
 	if config.DatabaseURL == "" {
@@ -83,6 +94,7 @@ func Load() (Config, error) {
 		"ADMIN_CSRF_SECRET":           config.AdminCSRFSecret,
 		"ADMIN_TOTP_ENCRYPTION_KEY":   config.AdminTOTPEncryptionKey,
 		"FAKE_PAYMENT_WEBHOOK_SECRET": config.FakePaymentWebhookSecret,
+		"METRICS_TOKEN":               config.MetricsToken,
 	} {
 		if len(value) < 32 {
 			missing = append(missing, key+" (minimum 32 characters)")
@@ -91,7 +103,7 @@ func Load() (Config, error) {
 	if len(missing) > 0 {
 		return Config{}, fmt.Errorf("configuration: %w: %v", ErrMissingEnvironment, missing)
 	}
-	secrets := []string{config.UserSessionSecret, config.AdminSessionSecret, config.UserCSRFSecret, config.AdminCSRFSecret, config.AdminTOTPEncryptionKey, config.FakePaymentWebhookSecret}
+	secrets := []string{config.UserSessionSecret, config.AdminSessionSecret, config.UserCSRFSecret, config.AdminCSRFSecret, config.AdminTOTPEncryptionKey, config.FakePaymentWebhookSecret, config.MetricsToken}
 	seen := make(map[string]struct{}, len(secrets))
 	for _, secret := range secrets {
 		if _, exists := seen[secret]; exists {
@@ -105,6 +117,13 @@ func Load() (Config, error) {
 var ErrMissingEnvironment = errors.New("required environment variable is missing")
 var ErrSecretsNotDistinct = errors.New("identity secrets must be distinct")
 var ErrInsecureProductionCookie = errors.New("COOKIE_SECURE must be true in production")
+var ErrFakePaymentInProduction = errors.New("FAKE_PAYMENT_ENABLED must be false in production")
+var ErrInsecureProductionOrigin = errors.New("production web origins must be exact HTTPS origins")
+
+func secureHTTPSOrigin(value string) bool {
+	parsed, err := url.Parse(value)
+	return err == nil && parsed.Scheme == "https" && parsed.Host != "" && parsed.Path == "" && parsed.RawQuery == "" && parsed.Fragment == "" && parsed.User == nil
+}
 
 func valueOrDefault(key, fallback string) string {
 	if value := os.Getenv(key); value != "" {

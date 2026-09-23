@@ -25,3 +25,5 @@ Subscription：`GET /subscriptions`；`POST /subscriptions/{id}/renewals` 使用
 User Portal：`GET /instances`、`GET /instances/{id}`、`GET /instances/{id}/networks|traffic`、Notifications、Tickets 均在查询层校验 user ownership。Start/Stop/Restart/Reinstall 必须带 CSRF 与 Idempotency-Key，返回 `202 + operation_id`；同一 Instance 同时只允许一个未终态动作。Ticket 创建与首条消息同事务写入，关闭/解决后的 Ticket 禁止追加消息。
 
 Admin Control Plane：`/admin/*` 使用独立 Admin Session、CSRF 与逐 Handler permission。列表覆盖 User/Product/Order/Payment/Ledger/Subscription/Instance/Node/Provider/Operation/Ticket/Audit/Admin/Role/Setting；secret 与 credential 永不返回。余额调整只能创建平衡 Ledger adjustment；用户状态、工单、设置与角色修改必须与 Audit 同事务。
+
+内部运维端点 `GET /metrics` 不属于 `/api/v1`，返回 Prometheus text format，并要求 `Authorization: Bearer <METRICS_TOKEN>`。Reverse Proxy 默认不公开该路径；监控系统应从受限管理网络直接抓取 Server。

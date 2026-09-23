@@ -47,6 +47,11 @@ export interface AuthData<T> {
   csrf_token: string;
 }
 
+export interface TOTPSetup {
+  secret: string;
+  otpauth_uri: string;
+}
+
 export interface CatalogItem {
   product_id: string; product_slug: string; product_name_i18n: Record<string, string>; description_i18n: Record<string, string>;
   plan_id: string; plan_slug: string; plan_name_i18n: Record<string, string>; cpu_cores: number; memory_mb: number; disk_gb: number;

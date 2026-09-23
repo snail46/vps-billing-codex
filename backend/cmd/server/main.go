@@ -15,6 +15,7 @@ import (
 	adminhttp "vps-billing/backend/internal/http/admin"
 	commercehttp "vps-billing/backend/internal/http/commerce"
 	"vps-billing/backend/internal/http/health"
+	metricshttp "vps-billing/backend/internal/http/metrics"
 	identityhttp "vps-billing/backend/internal/http/identity"
 	"vps-billing/backend/internal/http/middleware"
 	operationhttp "vps-billing/backend/internal/http/operation"
@@ -66,6 +67,8 @@ func run(logger *slog.Logger) error {
 
 	router := chi.NewRouter()
 	health.New(postgresClient, redisClient, logger).Register(router)
+	metricsCollector := metricshttp.NewCollector()
+	metricshttp.New(metricsCollector, postgresClient.Pool(), settings.MetricsToken).Register(router)
 	identityService := identity.NewService(identity.NewPostgresRepository(postgresClient.Pool()), settings.UserSessionSecret, settings.AdminSessionSecret, settings.UserCSRFSecret, settings.AdminCSRFSecret, settings.AdminTOTPEncryptionKey, settings.SessionTTL)
 	identityHandler := identityhttp.New(identityService, ratelimit.New(redisClient.Raw(), "auth:"), audit.NewPostgresRecorder(postgresClient.Pool()), settings.CookieSecure)
 	identityHandler.Register(router)
@@ -78,7 +81,7 @@ func run(logger *slog.Logger) error {
 	portalService := portal.NewService(portal.NewPostgresRepository(postgresClient.Pool()))
 	portalhttp.New(portalService, operationService, identityHandler).Register(router)
 	adminhttp.New(admin.NewService(admin.NewPostgresRepository(postgresClient.Pool())), identityHandler).Register(router)
-	handler := middleware.Correlation(logger, middleware.AccessLog(logger, middleware.CORS([]string{settings.UserWebOrigin, settings.AdminWebOrigin}, router)))
+	handler := middleware.Correlation(logger, metricsCollector.Instrument(middleware.AccessLog(logger, middleware.SecurityHeaders(settings.CookieSecure, middleware.CORS([]string{settings.UserWebOrigin, settings.AdminWebOrigin}, router)))))
 
 	server, err := serverapp.New(settings.ServerAddress, handler, logger)
 	if err != nil {

@@ -634,6 +634,24 @@ CREATE INDEX ix_instances_reconciliation
 ON instances(last_synced_at, id)
 WHERE deleted_at IS NULL AND provider_id IS NOT NULL AND provider_instance_id IS NOT NULL;
 
+CREATE INDEX ix_outbox_pending_dispatch
+ON outbox_events(next_attempt_at, created_at)
+WHERE status = 'pending';
+
+CREATE INDEX ix_operations_failed_recent
+ON operations(created_at DESC)
+WHERE status = 'failed';
+
+CREATE INDEX ix_payments_succeeded_paid
+ON payments(paid_at DESC)
+WHERE status = 'succeeded';
+
+CREATE INDEX ix_audit_events_created ON audit_events(created_at DESC);
+CREATE INDEX ix_tickets_updated ON tickets(updated_at DESC);
+CREATE INDEX ix_notifications_user_unread
+ON notifications(user_id, created_at DESC)
+WHERE read_at IS NULL AND user_id IS NOT NULL;
+
 CREATE TABLE agent_messages (
   message_id varchar(255) PRIMARY KEY, node_id uuid NOT NULL REFERENCES nodes(id), received_at timestamptz NOT NULL DEFAULT now()
 );

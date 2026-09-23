@@ -97,10 +97,10 @@
 - [x] Redis restart / worker crash
 
 ## Phase 12 — Release Hardening
-- [ ] security
-- [ ] admin 2FA
-- [ ] backup/restore
-- [ ] metrics/alerts
-- [ ] performance
-- [ ] upgrade/rollback
-- [ ] acceptance suite
+- [x] security
+- [x] admin 2FA
+- [x] backup/restore
+- [x] metrics/alerts
+- [x] performance
+- [x] upgrade/rollback
+- [x] acceptance suite
