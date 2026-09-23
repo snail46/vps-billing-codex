@@ -13,7 +13,7 @@ import (
 )
 
 const claimSubscriptionsForLifecycle = `-- name: ClaimSubscriptionsForLifecycle :many
-SELECT id, user_id, plan_id, status, billing_cycle, price_minor, currency, started_at, current_period_start, current_period_end, next_due_at, grace_until, cancel_at_period_end, ended_at, version, created_at, updated_at FROM subscriptions
+SELECT id, user_id, plan_id, status, billing_cycle, price_minor, currency, started_at, current_period_start, current_period_end, next_due_at, grace_until, cancel_at_period_end, ended_at, version, created_at, updated_at, source_order_id, source_item_index FROM subscriptions
 WHERE (status = 'active' AND current_period_end IS NOT NULL AND current_period_end <= $1)
    OR (status = 'past_due' AND grace_until IS NOT NULL AND grace_until <= $1)
 ORDER BY COALESCE(grace_until, current_period_end), id
@@ -53,6 +53,8 @@ func (q *Queries) ClaimSubscriptionsForLifecycle(ctx context.Context, arg ClaimS
 			&i.Version,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.SourceOrderID,
+			&i.SourceItemIndex,
 		); err != nil {
 			return nil, err
 		}
@@ -65,7 +67,7 @@ func (q *Queries) ClaimSubscriptionsForLifecycle(ctx context.Context, arg ClaimS
 }
 
 const getSubscriptionForRenewal = `-- name: GetSubscriptionForRenewal :one
-SELECT subscriptions.id, subscriptions.user_id, subscriptions.plan_id, subscriptions.status, subscriptions.billing_cycle, subscriptions.price_minor, subscriptions.currency, subscriptions.started_at, subscriptions.current_period_start, subscriptions.current_period_end, subscriptions.next_due_at, subscriptions.grace_until, subscriptions.cancel_at_period_end, subscriptions.ended_at, subscriptions.version, subscriptions.created_at, subscriptions.updated_at, plans.slug AS plan_slug, plans.name_i18n AS plan_name_i18n,
+SELECT subscriptions.id, subscriptions.user_id, subscriptions.plan_id, subscriptions.status, subscriptions.billing_cycle, subscriptions.price_minor, subscriptions.currency, subscriptions.started_at, subscriptions.current_period_start, subscriptions.current_period_end, subscriptions.next_due_at, subscriptions.grace_until, subscriptions.cancel_at_period_end, subscriptions.ended_at, subscriptions.version, subscriptions.created_at, subscriptions.updated_at, subscriptions.source_order_id, subscriptions.source_item_index, plans.slug AS plan_slug, plans.name_i18n AS plan_name_i18n,
        products.id AS product_id, products.slug AS product_slug,
        products.name_i18n AS product_name_i18n, products.description_i18n AS product_description_i18n
 FROM subscriptions
@@ -98,6 +100,8 @@ type GetSubscriptionForRenewalRow struct {
 	Version                int64              `json:"version"`
 	CreatedAt              pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt              pgtype.Timestamptz `json:"updated_at"`
+	SourceOrderID          *uuid.UUID         `json:"source_order_id"`
+	SourceItemIndex        pgtype.Int4        `json:"source_item_index"`
 	PlanSlug               string             `json:"plan_slug"`
 	PlanNameI18n           []byte             `json:"plan_name_i18n"`
 	ProductID              uuid.UUID          `json:"product_id"`
@@ -127,6 +131,8 @@ func (q *Queries) GetSubscriptionForRenewal(ctx context.Context, arg GetSubscrip
 		&i.Version,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.SourceOrderID,
+		&i.SourceItemIndex,
 		&i.PlanSlug,
 		&i.PlanNameI18n,
 		&i.ProductID,
@@ -138,7 +144,7 @@ func (q *Queries) GetSubscriptionForRenewal(ctx context.Context, arg GetSubscrip
 }
 
 const listSubscriptionsByUser = `-- name: ListSubscriptionsByUser :many
-SELECT subscriptions.id, subscriptions.user_id, subscriptions.plan_id, subscriptions.status, subscriptions.billing_cycle, subscriptions.price_minor, subscriptions.currency, subscriptions.started_at, subscriptions.current_period_start, subscriptions.current_period_end, subscriptions.next_due_at, subscriptions.grace_until, subscriptions.cancel_at_period_end, subscriptions.ended_at, subscriptions.version, subscriptions.created_at, subscriptions.updated_at, plans.slug AS plan_slug, plans.name_i18n AS plan_name_i18n
+SELECT subscriptions.id, subscriptions.user_id, subscriptions.plan_id, subscriptions.status, subscriptions.billing_cycle, subscriptions.price_minor, subscriptions.currency, subscriptions.started_at, subscriptions.current_period_start, subscriptions.current_period_end, subscriptions.next_due_at, subscriptions.grace_until, subscriptions.cancel_at_period_end, subscriptions.ended_at, subscriptions.version, subscriptions.created_at, subscriptions.updated_at, subscriptions.source_order_id, subscriptions.source_item_index, plans.slug AS plan_slug, plans.name_i18n AS plan_name_i18n
 FROM subscriptions
 JOIN plans ON plans.id = subscriptions.plan_id
 WHERE subscriptions.user_id = $1
@@ -163,6 +169,8 @@ type ListSubscriptionsByUserRow struct {
 	Version            int64              `json:"version"`
 	CreatedAt          pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt          pgtype.Timestamptz `json:"updated_at"`
+	SourceOrderID      *uuid.UUID         `json:"source_order_id"`
+	SourceItemIndex    pgtype.Int4        `json:"source_item_index"`
 	PlanSlug           string             `json:"plan_slug"`
 	PlanNameI18n       []byte             `json:"plan_name_i18n"`
 }
@@ -194,6 +202,8 @@ func (q *Queries) ListSubscriptionsByUser(ctx context.Context, userID uuid.UUID)
 			&i.Version,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.SourceOrderID,
+			&i.SourceItemIndex,
 			&i.PlanSlug,
 			&i.PlanNameI18n,
 		); err != nil {
@@ -208,7 +218,7 @@ func (q *Queries) ListSubscriptionsByUser(ctx context.Context, userID uuid.UUID)
 }
 
 const lockSubscriptionByID = `-- name: LockSubscriptionByID :one
-SELECT id, user_id, plan_id, status, billing_cycle, price_minor, currency, started_at, current_period_start, current_period_end, next_due_at, grace_until, cancel_at_period_end, ended_at, version, created_at, updated_at FROM subscriptions
+SELECT id, user_id, plan_id, status, billing_cycle, price_minor, currency, started_at, current_period_start, current_period_end, next_due_at, grace_until, cancel_at_period_end, ended_at, version, created_at, updated_at, source_order_id, source_item_index FROM subscriptions
 WHERE id = $1
 FOR UPDATE
 `
@@ -234,12 +244,14 @@ func (q *Queries) LockSubscriptionByID(ctx context.Context, id uuid.UUID) (Subsc
 		&i.Version,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.SourceOrderID,
+		&i.SourceItemIndex,
 	)
 	return i, err
 }
 
 const lockSubscriptionByUser = `-- name: LockSubscriptionByUser :one
-SELECT id, user_id, plan_id, status, billing_cycle, price_minor, currency, started_at, current_period_start, current_period_end, next_due_at, grace_until, cancel_at_period_end, ended_at, version, created_at, updated_at FROM subscriptions
+SELECT id, user_id, plan_id, status, billing_cycle, price_minor, currency, started_at, current_period_start, current_period_end, next_due_at, grace_until, cancel_at_period_end, ended_at, version, created_at, updated_at, source_order_id, source_item_index FROM subscriptions
 WHERE id = $1 AND user_id = $2
 FOR UPDATE
 `
@@ -270,6 +282,8 @@ func (q *Queries) LockSubscriptionByUser(ctx context.Context, arg LockSubscripti
 		&i.Version,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.SourceOrderID,
+		&i.SourceItemIndex,
 	)
 	return i, err
 }
@@ -298,7 +312,7 @@ SET status = 'active',
     version = version + 1,
     updated_at = now()
 WHERE id = $1
-RETURNING id, user_id, plan_id, status, billing_cycle, price_minor, currency, started_at, current_period_start, current_period_end, next_due_at, grace_until, cancel_at_period_end, ended_at, version, created_at, updated_at
+RETURNING id, user_id, plan_id, status, billing_cycle, price_minor, currency, started_at, current_period_start, current_period_end, next_due_at, grace_until, cancel_at_period_end, ended_at, version, created_at, updated_at, source_order_id, source_item_index
 `
 
 type RenewSubscriptionAfterPaymentParams struct {
@@ -327,6 +341,8 @@ func (q *Queries) RenewSubscriptionAfterPayment(ctx context.Context, arg RenewSu
 		&i.Version,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.SourceOrderID,
+		&i.SourceItemIndex,
 	)
 	return i, err
 }
@@ -335,7 +351,7 @@ const setSubscriptionCancelAtPeriodEnd = `-- name: SetSubscriptionCancelAtPeriod
 UPDATE subscriptions
 SET cancel_at_period_end = $2, version = version + 1, updated_at = now()
 WHERE id = $1
-RETURNING id, user_id, plan_id, status, billing_cycle, price_minor, currency, started_at, current_period_start, current_period_end, next_due_at, grace_until, cancel_at_period_end, ended_at, version, created_at, updated_at
+RETURNING id, user_id, plan_id, status, billing_cycle, price_minor, currency, started_at, current_period_start, current_period_end, next_due_at, grace_until, cancel_at_period_end, ended_at, version, created_at, updated_at, source_order_id, source_item_index
 `
 
 type SetSubscriptionCancelAtPeriodEndParams struct {
@@ -364,6 +380,8 @@ func (q *Queries) SetSubscriptionCancelAtPeriodEnd(ctx context.Context, arg SetS
 		&i.Version,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.SourceOrderID,
+		&i.SourceItemIndex,
 	)
 	return i, err
 }
@@ -376,7 +394,7 @@ SET status = $2,
     version = version + 1,
     updated_at = now()
 WHERE id = $1 AND version = $5
-RETURNING id, user_id, plan_id, status, billing_cycle, price_minor, currency, started_at, current_period_start, current_period_end, next_due_at, grace_until, cancel_at_period_end, ended_at, version, created_at, updated_at
+RETURNING id, user_id, plan_id, status, billing_cycle, price_minor, currency, started_at, current_period_start, current_period_end, next_due_at, grace_until, cancel_at_period_end, ended_at, version, created_at, updated_at, source_order_id, source_item_index
 `
 
 type UpdateSubscriptionLifecycleParams struct {
@@ -414,6 +432,8 @@ func (q *Queries) UpdateSubscriptionLifecycle(ctx context.Context, arg UpdateSub
 		&i.Version,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.SourceOrderID,
+		&i.SourceItemIndex,
 	)
 	return i, err
 }

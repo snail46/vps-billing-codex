@@ -9,3 +9,5 @@ Failure Injection：CREATE_TIMEOUT、CREATE_SUCCESS_BUT_TIMEOUT、NODE_OFFLINE�
 Scheduler Integration：相同输入排序确定、能力过滤、并发 Reservation 不超卖、Operation 幂等、commit/release 守恒。MockProvider Contract：重复 Create、同键冲突、完整动作、NAT/traffic/usage、unsupported error normalization。
 
 Operation Integration：并发相同 idempotency key 只创建一个 Operation；Outbox→Redis Stream→Worker 首次可重试失败；RetryScheduler 到期重投；第二次执行成功；跨用户查询返回 not found；SSE 事件 ownership filter 拒绝无 owner 或其他用户事件。
+
+Provision Integration：paid purchase event→pending Subscription/Instance/Operation→deterministic Scheduler Reservation→MockProvider Create/Get→running Instance→committed capacity→active Subscription→fulfilled Order→ready Notification；重复 Trigger 只保留一条 Operation。Compose Gate 必须通过真实 HTTP 支付回调并轮询授权 Operation API 看到 11 个步骤和 succeeded。

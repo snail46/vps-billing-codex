@@ -27,3 +27,5 @@ Fake Payment 仅用于 V1 验收和非生产测试，回调使用 `FAKE_PAYMENT_
 Subscription lifecycle Worker 使用 `SUBSCRIPTION_GRACE_PERIOD`（Go duration，默认 `72h`）计算从计费周期结束开始的宽限期。修改该值只影响之后进入 past_due 的订阅；已持久化的 `grace_until` 不回溯修改。
 
 Worker 需要访问 Redis Stream `operation-queue`（consumer group `operation-workers`）与 `domain-events`。PostgreSQL 是 Operation 的真相源；Redis 暂时不可用时 Outbox 保留待发布事件，恢复后继续投递。部署期间至少运行一个 Worker；失联 consumer 与 stale heartbeat 的自动恢复由 Phase 11 Reconciler 提供。
+
+开发/验收环境可在 providers 表配置 `provider_type=mock`；Worker 的 Dynamic Registry 会按 ID 延迟创建 Mock Adapter。生产禁止使用 Mock，必须在 Phase 7/10 提供已核对官方协议的 Adapter Factory。启用销售的 Plan 必须配置 active NodeGroup、兼容能力和 default_image_id，否则 Provision 保持失败/重试状态而不会假成功。

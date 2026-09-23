@@ -22,3 +22,5 @@ Subscription 续费通过 `orders.kind=renewal` 与 `orders.subscription_id` 明
 Infrastructure 的节点容量同时记录 total / allocated / reserved，覆盖 CPU、内存、磁盘、IPv4、IPv6 和 NAT 端口。Scheduler 在事务中锁定候选 Node、再次检查容量、增加 reserved 并插入每 Operation 唯一的 Reservation；数据库约束禁止负数与超卖。commit 将 reserved 原子转为 allocated，release 原子归还 reserved。
 
 Operation 以全局唯一 idempotency key 创建，并记录 user/admin actor、trace、retry schedule 与 heartbeat。OperationStep 按 `(operation_id, step_key)` 唯一，保存公开安全输出；原始错误只保存在服务端，不进入用户事件或响应。
+
+购买产生的 Subscription 使用 `(source_order_id, source_item_index)` 唯一关联来源 Order，但仍是独立聚合；每个 Subscription 至多一个 Instance。Plan 保存可由 Provider Adapter 解释的 `default_image_id` 与目标 NodeGroup。Provision 最终化在同一事务提交 Reservation、激活 Subscription、条件完成 Order、写 Notification 与 Outbox。

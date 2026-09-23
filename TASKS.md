@@ -49,13 +49,13 @@
 - [x] OperationProgress component
 
 ## Phase 6 — Provision Vertical Slice
-- [ ] paid order → subscription
-- [ ] provision operation
-- [ ] scheduler/reservation
-- [ ] MockProvider create
-- [ ] instance running
-- [ ] notification
-- [ ] E2E
+- [x] paid order → subscription
+- [x] provision operation
+- [x] scheduler/reservation
+- [x] MockProvider create
+- [x] instance running
+- [x] notification
+- [x] E2E
 **Gate:** 浏览→下单→假支付→自动开通→自动进度→运行。
 
 ## Phase 7 — Direct Provider

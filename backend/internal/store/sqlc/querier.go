@@ -11,6 +11,7 @@ import (
 )
 
 type Querier interface {
+	ActivateProvisionedSubscription(ctx context.Context, arg ActivateProvisionedSubscriptionParams) (Subscription, error)
 	AddNodeReservation(ctx context.Context, arg AddNodeReservationParams) (Node, error)
 	AssignAdminRole(ctx context.Context, arg AssignAdminRoleParams) error
 	ClaimDueOperationRetries(ctx context.Context, limit int32) ([]Operation, error)
@@ -36,6 +37,9 @@ type Querier interface {
 	CreateOrderItem(ctx context.Context, arg CreateOrderItemParams) error
 	CreateOutboxEvent(ctx context.Context, arg CreateOutboxEventParams) error
 	CreatePayment(ctx context.Context, arg CreatePaymentParams) (Payment, error)
+	CreatePendingInstance(ctx context.Context, arg CreatePendingInstanceParams) (Instance, error)
+	CreateProvisionNotification(ctx context.Context, arg CreateProvisionNotificationParams) error
+	CreatePurchaseSubscription(ctx context.Context, arg CreatePurchaseSubscriptionParams) (Subscription, error)
 	CreateResourceReservation(ctx context.Context, arg CreateResourceReservationParams) (ResourceReservation, error)
 	CreateUser(ctx context.Context, arg CreateUserParams) (User, error)
 	CreateUserSession(ctx context.Context, arg CreateUserSessionParams) (UserSession, error)
@@ -47,12 +51,16 @@ type Querier interface {
 	GetAdminByEmail(ctx context.Context, email string) (Admin, error)
 	GetAdminByID(ctx context.Context, id uuid.UUID) (Admin, error)
 	GetAdminTOTPSecret(ctx context.Context, adminID uuid.UUID) (AdminTotpSecret, error)
+	GetInfrastructureProviderByID(ctx context.Context, id uuid.UUID) (Provider, error)
 	GetOperationByID(ctx context.Context, id uuid.UUID) (Operation, error)
 	GetOperationByIdempotency(ctx context.Context, idempotencyKey string) (Operation, error)
 	GetOperationForUser(ctx context.Context, arg GetOperationForUserParams) (Operation, error)
 	GetOrderByUserIdempotency(ctx context.Context, arg GetOrderByUserIdempotencyParams) (Order, error)
+	GetPaidPurchaseForProvision(ctx context.Context, id uuid.UUID) (GetPaidPurchaseForProvisionRow, error)
 	GetPaymentByOrder(ctx context.Context, orderID uuid.UUID) (Payment, error)
 	GetPlanForOrder(ctx context.Context, id uuid.UUID) (GetPlanForOrderRow, error)
+	GetProvisionContext(ctx context.Context, id uuid.UUID) (GetProvisionContextRow, error)
+	GetProvisionPlacement(ctx context.Context, operationID uuid.UUID) (GetProvisionPlacementRow, error)
 	GetResourceReservationByOperation(ctx context.Context, operationID uuid.UUID) (ResourceReservation, error)
 	GetSubscriptionForRenewal(ctx context.Context, arg GetSubscriptionForRenewalParams) (GetSubscriptionForRenewalRow, error)
 	GetUserByEmail(ctx context.Context, email string) (User, error)
@@ -74,10 +82,12 @@ type Querier interface {
 	LockSubscriptionByID(ctx context.Context, id uuid.UUID) (Subscription, error)
 	LockSubscriptionByUser(ctx context.Context, arg LockSubscriptionByUserParams) (Subscription, error)
 	MarkInvoicePaid(ctx context.Context, id uuid.UUID) error
+	MarkOrderFulfilling(ctx context.Context, id uuid.UUID) error
 	MarkOrderPaid(ctx context.Context, id uuid.UUID) error
 	MarkOutboxPublished(ctx context.Context, id uuid.UUID) error
 	MarkOutboxRetry(ctx context.Context, id uuid.UUID) error
 	MarkPaymentSucceeded(ctx context.Context, arg MarkPaymentSucceededParams) error
+	MarkPurchaseOrderFulfilledIfReady(ctx context.Context, id uuid.UUID) error
 	MarkWebhookProcessed(ctx context.Context, id uuid.UUID) error
 	ReleaseNodeReservation(ctx context.Context, arg ReleaseNodeReservationParams) (Node, error)
 	RenewSubscriptionAfterPayment(ctx context.Context, arg RenewSubscriptionAfterPaymentParams) (Subscription, error)
@@ -86,6 +96,9 @@ type Querier interface {
 	RevokeUserSession(ctx context.Context, tokenHash []byte) error
 	ScheduleOperationRetry(ctx context.Context, arg ScheduleOperationRetryParams) (Operation, error)
 	SelectCandidateNodesForUpdate(ctx context.Context, arg SelectCandidateNodesForUpdateParams) ([]Node, error)
+	SetInstancePlacement(ctx context.Context, arg SetInstancePlacementParams) error
+	SetInstanceProviderResult(ctx context.Context, arg SetInstanceProviderResultParams) error
+	SetInstanceProvisionError(ctx context.Context, id uuid.UUID) error
 	SetResourceReservationStatus(ctx context.Context, arg SetResourceReservationStatusParams) (ResourceReservation, error)
 	SetSubscriptionCancelAtPeriodEnd(ctx context.Context, arg SetSubscriptionCancelAtPeriodEndParams) (Subscription, error)
 	TouchAdminSession(ctx context.Context, id uuid.UUID) error

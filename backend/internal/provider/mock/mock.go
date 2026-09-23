@@ -2,6 +2,7 @@ package mock
 
 import (
 	"context"
+	"fmt"
 	"reflect"
 	"sort"
 	"sync"
@@ -85,6 +86,13 @@ func (p *Provider) CreateInstance(_ context.Context, request providercontract.Cr
 	}
 	providerID := "mock-" + request.InstanceID
 	instance := providercontract.Instance{ProviderInstanceID: providerID, State: "running", CPUCores: request.CPUCores, MemoryMB: request.MemoryMB, DiskGB: request.DiskGB, CreatedAt: p.now().UTC(), Metadata: map[string]any{"platform_instance_id": request.InstanceID, "node_id": request.NodeID, "image": request.Image}}
+	instanceID, _ := uuid.Parse(request.InstanceID)
+	for index := 0; index < request.IPv4Count; index++ {
+		instance.IPv4 = append(instance.IPv4, fmt.Sprintf("192.0.2.%d", 1+(int(instanceID[15])+index)%253))
+	}
+	for index := 0; index < request.IPv6Count; index++ {
+		instance.IPv6 = append(instance.IPv6, fmt.Sprintf("2001:db8::%x", int(instanceID[14])+index+1))
+	}
 	operation := successfulOperation(request.OperationID, "create")
 	storedRequest := request
 	storedRequest.RootPassword = nil

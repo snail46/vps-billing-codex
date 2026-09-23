@@ -20,6 +20,9 @@ RETURNING *;
 -- name: ListInfrastructureProviders :many
 SELECT * FROM providers ORDER BY name, id;
 
+-- name: GetInfrastructureProviderByID :one
+SELECT * FROM providers WHERE id = $1 AND status IN ('active', 'degraded');
+
 -- name: ListNodeGroups :many
 SELECT * FROM node_groups ORDER BY region, name, id;
 

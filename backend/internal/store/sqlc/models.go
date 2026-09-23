@@ -338,6 +338,7 @@ type Plan struct {
 	StockMode      string             `json:"stock_mode"`
 	CreatedAt      pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+	DefaultImageID string             `json:"default_image_id"`
 }
 
 type PortForward struct {
@@ -426,6 +427,8 @@ type Subscription struct {
 	Version            int64              `json:"version"`
 	CreatedAt          pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt          pgtype.Timestamptz `json:"updated_at"`
+	SourceOrderID      *uuid.UUID         `json:"source_order_id"`
+	SourceItemIndex    pgtype.Int4        `json:"source_item_index"`
 }
 
 type SystemSetting struct {

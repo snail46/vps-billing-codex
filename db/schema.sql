@@ -117,6 +117,7 @@ CREATE TABLE plans (
   price_minor bigint NOT NULL CHECK (price_minor >= 0),
   currency varchar(3) NOT NULL,
   stock_mode varchar(64) NOT NULL DEFAULT 'automatic',
+  default_image_id varchar(255) NOT NULL DEFAULT 'ubuntu-24.04',
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
   UNIQUE(product_id, slug)
@@ -319,9 +320,19 @@ CREATE TABLE subscriptions (
   cancel_at_period_end boolean NOT NULL DEFAULT false,
   ended_at timestamptz,
   version bigint NOT NULL DEFAULT 1,
+  source_order_id uuid REFERENCES orders(id),
+  source_item_index integer,
   created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now()
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT subscriptions_source_consistent CHECK (
+    (source_order_id IS NULL AND source_item_index IS NULL) OR
+    (source_order_id IS NOT NULL AND source_item_index > 0)
+  )
 );
+
+CREATE UNIQUE INDEX ux_subscriptions_source_order_item
+ON subscriptions(source_order_id, source_item_index)
+WHERE source_order_id IS NOT NULL;
 
 CREATE INDEX ix_subscriptions_lifecycle_due
 ON subscriptions(status, next_due_at, grace_until, current_period_end);
@@ -387,6 +398,12 @@ CREATE TABLE instances (
 CREATE UNIQUE INDEX ux_instance_provider_id
 ON instances(provider_id, provider_instance_id)
 WHERE provider_instance_id IS NOT NULL;
+
+CREATE UNIQUE INDEX ux_instances_subscription ON instances(subscription_id);
+
+ALTER TABLE instances
+  ADD CONSTRAINT instances_desired_state_valid CHECK (desired_state IN ('running', 'stopped', 'suspended', 'deleted')),
+  ADD CONSTRAINT instances_observed_state_valid CHECK (observed_state IN ('pending', 'provisioning', 'running', 'stopping', 'stopped', 'restarting', 'reinstalling', 'suspending', 'suspended', 'deleting', 'deleted', 'error', 'unknown'));
 
 CREATE TABLE instance_networks (
   id uuid PRIMARY KEY,

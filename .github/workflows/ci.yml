@@ -94,7 +94,7 @@ jobs:
           trap 'echo "::error title=Compose flow failed::stage=${stage}; line=${LINENO}; command=${BASH_COMMAND}"' ERR
           docker compose -f deploy/docker-compose.yml exec -T postgres \
             psql -U vps_billing -d vps_billing -v ON_ERROR_STOP=1 -c \
-            "INSERT INTO products(id,slug,name_i18n,status) VALUES ('10000000-0000-7000-8000-000000000001','ci-product','{\"en-US\":\"CI Product\",\"zh-CN\":\"CI 产品\"}','active'); INSERT INTO plans(id,product_id,slug,name_i18n,status,cpu_cores,memory_mb,disk_gb,virtualization,billing_cycle,price_minor,currency) VALUES ('10000000-0000-7000-8000-000000000002','10000000-0000-7000-8000-000000000001','ci-plan','{\"en-US\":\"CI Plan\",\"zh-CN\":\"CI 套餐\"}','active',1,1024,20,'kvm','monthly',1299,'USD');"
+            "INSERT INTO node_groups(id,name,region,status) VALUES ('10000000-0000-7000-8000-000000000010','ci-group','ci-region','active'); INSERT INTO providers(id,name,provider_type,status,capabilities) VALUES ('10000000-0000-7000-8000-000000000011','ci-mock','mock','active','{\"create_instance\":true}'); INSERT INTO nodes(id,provider_id,node_group_id,provider_node_id,name,region,status,cpu_total,memory_total_mb,disk_total_gb,ipv4_total,capabilities,last_seen_at) VALUES ('10000000-0000-7000-8000-000000000012','10000000-0000-7000-8000-000000000011','10000000-0000-7000-8000-000000000010','ci-node-provider-id','ci-node','ci-region','online',16,32768,1000,16,'{\"virtualization\":\"kvm\"}',now()); INSERT INTO products(id,slug,name_i18n,status) VALUES ('10000000-0000-7000-8000-000000000001','ci-product','{\"en-US\":\"CI Product\",\"zh-CN\":\"CI 产品\"}','active'); INSERT INTO plans(id,product_id,node_group_id,slug,name_i18n,status,cpu_cores,memory_mb,disk_gb,ipv4_count,virtualization,billing_cycle,price_minor,currency,default_image_id) VALUES ('10000000-0000-7000-8000-000000000002','10000000-0000-7000-8000-000000000001','10000000-0000-7000-8000-000000000010','ci-plan','{\"en-US\":\"CI Plan\",\"zh-CN\":\"CI 套餐\"}','active',1,1024,20,1,'kvm','monthly',1299,'USD','ubuntu-24.04');"
           stage="register user"
           response=$(curl --fail-with-body --show-error --cookie-jar /tmp/user.cookies \
             -H 'Content-Type: application/json' \
@@ -110,6 +110,7 @@ jobs:
             -d '{"plan_id":"10000000-0000-7000-8000-000000000002","quantity":1}' \
             http://localhost:8080/api/v1/orders)
           payment_id=$(echo "$order" | jq -er '.data.payment_id')
+          order_id=$(echo "$order" | jq -er '.data.id')
           payload=$(jq -cn --arg payment_id "$payment_id" '{event_id:"ci-payment-event-1",payment_id:$payment_id,external_payment_id:"ci-external-payment-1",status:"succeeded",amount_minor:1299,currency:"USD"}')
           signature=$(printf '%s' "$payload" | openssl dgst -sha256 -hmac 'development-fake-payment-secret-change-before-production' | awk '{print $2}')
           stage="deliver payment webhook 100 times"
@@ -131,10 +132,22 @@ jobs:
           test "$outbox_count" = "1"
           for wait_attempt in $(seq 1 20); do
             stream_count=$(docker compose -f deploy/docker-compose.yml exec -T redis redis-cli XLEN domain-events)
-            test "$stream_count" = "1" && break
+            test "$stream_count" -ge "1" && break
             sleep 1
           done
-          test "$stream_count" = "1"
+          test "$stream_count" -ge "1"
+          stage="wait for automatic provisioning"
+          for wait_attempt in $(seq 1 30); do
+            provision_state=$(docker compose -f deploy/docker-compose.yml exec -T postgres psql -U vps_billing -d vps_billing -tAc "SELECT concat_ws('|',o.id,o.status,s.status,i.observed_state,ord.status,r.status) FROM operations o JOIN instances i ON i.id=o.resource_id JOIN subscriptions s ON s.id=i.subscription_id JOIN orders ord ON ord.id=s.source_order_id JOIN resource_reservations r ON r.operation_id=o.id WHERE ord.id='$order_id'")
+            echo "$provision_state" | grep -Eq '\|succeeded\|active\|running\|fulfilled\|committed$' && break
+            sleep 1
+          done
+          echo "$provision_state" | grep -Eq '\|succeeded\|active\|running\|fulfilled\|committed$'
+          operation_id=$(echo "$provision_state" | cut -d'|' -f1)
+          stage="verify recoverable operation endpoint"
+          curl --fail-with-body --show-error --cookie /tmp/user.cookies "http://localhost:8080/api/v1/operations/$operation_id" | jq -e '.data.status == "succeeded" and .data.progress == 100 and (.data.steps | length) == 11'
+          ready_notification_count=$(docker compose -f deploy/docker-compose.yml exec -T postgres psql -U vps_billing -d vps_billing -tAc "SELECT count(*) FROM notifications WHERE user_id='$user_id' AND type='instance_ready'")
+          test "$ready_notification_count" = "1"
           stage="seed active subscription"
           docker compose -f deploy/docker-compose.yml exec -T postgres \
             psql -U vps_billing -d vps_billing -v ON_ERROR_STOP=1 -c \

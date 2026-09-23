@@ -8,6 +8,7 @@ sql:
       - "internal/migrations/sql/000004_subscription.up.sql"
       - "internal/migrations/sql/000005_infrastructure.up.sql"
       - "internal/migrations/sql/000006_operations.up.sql"
+      - "internal/migrations/sql/000007_provision.up.sql"
     queries: "internal/store/queries"
     gen:
       go:

@@ -383,6 +383,30 @@ func (q *Queries) CreateResourceReservation(ctx context.Context, arg CreateResou
 	return i, err
 }
 
+const getInfrastructureProviderByID = `-- name: GetInfrastructureProviderByID :one
+SELECT id, name, provider_type, endpoint, credential_ref, status, version, config, capabilities, last_health_check_at, created_at, updated_at FROM providers WHERE id = $1 AND status IN ('active', 'degraded')
+`
+
+func (q *Queries) GetInfrastructureProviderByID(ctx context.Context, id uuid.UUID) (Provider, error) {
+	row := q.db.QueryRow(ctx, getInfrastructureProviderByID, id)
+	var i Provider
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.ProviderType,
+		&i.Endpoint,
+		&i.CredentialRef,
+		&i.Status,
+		&i.Version,
+		&i.Config,
+		&i.Capabilities,
+		&i.LastHealthCheckAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const getResourceReservationByOperation = `-- name: GetResourceReservationByOperation :one
 SELECT id, node_id, operation_id, cpu_cores, memory_mb, disk_gb, ipv4_count, ipv6_count, nat_port_count, status, expires_at, created_at, updated_at FROM resource_reservations WHERE operation_id = $1
 `

@@ -424,7 +424,7 @@ func (q *Queries) GetPaymentByOrder(ctx context.Context, orderID uuid.UUID) (Pay
 }
 
 const getPlanForOrder = `-- name: GetPlanForOrder :one
-SELECT plans.id, plans.product_id, plans.node_group_id, plans.slug, plans.name_i18n, plans.status, plans.cpu_cores, plans.memory_mb, plans.disk_gb, plans.traffic_gb, plans.bandwidth_mbps, plans.ipv4_count, plans.ipv6_count, plans.nat_port_count, plans.virtualization, plans.billing_cycle, plans.price_minor, plans.currency, plans.stock_mode, plans.created_at, plans.updated_at, products.slug AS product_slug, products.name_i18n AS product_name_i18n,
+SELECT plans.id, plans.product_id, plans.node_group_id, plans.slug, plans.name_i18n, plans.status, plans.cpu_cores, plans.memory_mb, plans.disk_gb, plans.traffic_gb, plans.bandwidth_mbps, plans.ipv4_count, plans.ipv6_count, plans.nat_port_count, plans.virtualization, plans.billing_cycle, plans.price_minor, plans.currency, plans.stock_mode, plans.created_at, plans.updated_at, plans.default_image_id, products.slug AS product_slug, products.name_i18n AS product_name_i18n,
        products.description_i18n AS product_description_i18n, products.status AS product_status
 FROM plans JOIN products ON products.id = plans.product_id
 WHERE plans.id = $1 AND plans.status = 'active' AND products.status = 'active'
@@ -452,6 +452,7 @@ type GetPlanForOrderRow struct {
 	StockMode              string             `json:"stock_mode"`
 	CreatedAt              pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt              pgtype.Timestamptz `json:"updated_at"`
+	DefaultImageID         string             `json:"default_image_id"`
 	ProductSlug            string             `json:"product_slug"`
 	ProductNameI18n        []byte             `json:"product_name_i18n"`
 	ProductDescriptionI18n []byte             `json:"product_description_i18n"`
@@ -483,6 +484,7 @@ func (q *Queries) GetPlanForOrder(ctx context.Context, id uuid.UUID) (GetPlanFor
 		&i.StockMode,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.DefaultImageID,
 		&i.ProductSlug,
 		&i.ProductNameI18n,
 		&i.ProductDescriptionI18n,
