@@ -15,7 +15,7 @@ VPS Billing V1 是一个面向 VPS 销售、计费和自动化交付的模块化
 
 ## 使用预构建镜像部署
 
-镜像由 GitHub Actions 构建并发布到 GitHub Container Registry：
+镜像由 GitHub Actions 构建并发布到 GitHub Container Registry，每个标签均提供 `linux/amd64` 与 `linux/arm64` manifest：
 
 - `ghcr.io/snail46/vps-billing-codex/backend:v1`
 - `ghcr.io/snail46/vps-billing-codex/user-web:v1`

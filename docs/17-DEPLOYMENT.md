@@ -2,6 +2,8 @@
 
 V1：reverse-proxy、user-web、admin-web、server、worker、runman-gateway、postgres、redis。
 
+GitHub Actions 发布的 backend、user-web、admin-web 镜像必须同时包含 `linux/amd64` 与 `linux/arm64` manifest；部署端使用标准 Compose pull 流程自动选择主机架构。
+
 环境：development/staging/production。
 
 Health：
