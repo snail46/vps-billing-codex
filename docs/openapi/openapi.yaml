@@ -504,7 +504,7 @@ components:
     adminSession: {type: apiKey, in: cookie, name: vps_admin_session}
   headers:
     SessionCookie:
-      description: Secure, HttpOnly, SameSite=Strict session cookie (Secure is disabled only in local development).
+      description: HttpOnly, SameSite=Strict session cookie. Secure is enabled for HTTPS ingress and may be explicitly disabled for isolated HTTP deployments.
       schema: {type: string}
   parameters:
     ResourceID:

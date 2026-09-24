@@ -29,6 +29,7 @@ type Config struct {
 	SessionTTL               time.Duration
 	SubscriptionGracePeriod  time.Duration
 	CookieSecure             bool
+	AllowInsecureHTTP        bool
 }
 
 func Load() (Config, error) {
@@ -59,7 +60,12 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("configuration: COOKIE_SECURE: %w", err)
 	}
 	config.CookieSecure = secure
-	if config.Environment == "production" && !config.CookieSecure {
+	allowInsecureHTTP, err := strconv.ParseBool(valueOrDefault("ALLOW_INSECURE_HTTP", "false"))
+	if err != nil {
+		return Config{}, fmt.Errorf("configuration: ALLOW_INSECURE_HTTP: %w", err)
+	}
+	config.AllowInsecureHTTP = allowInsecureHTTP
+	if config.Environment == "production" && !config.AllowInsecureHTTP && !config.CookieSecure {
 		return Config{}, ErrInsecureProductionCookie
 	}
 	fakeDefault := "true"
@@ -75,7 +81,11 @@ func Load() (Config, error) {
 		if config.FakePaymentEnabled {
 			return Config{}, ErrFakePaymentInProduction
 		}
-		if !secureHTTPSOrigin(config.UserWebOrigin) || !secureHTTPSOrigin(config.AdminWebOrigin) {
+		if config.AllowInsecureHTTP {
+			if !exactWebOrigin(config.UserWebOrigin) || !exactWebOrigin(config.AdminWebOrigin) {
+				return Config{}, ErrInvalidProductionOrigin
+			}
+		} else if !secureHTTPSOrigin(config.UserWebOrigin) || !secureHTTPSOrigin(config.AdminWebOrigin) {
 			return Config{}, ErrInsecureProductionOrigin
 		}
 	}
@@ -116,13 +126,23 @@ func Load() (Config, error) {
 
 var ErrMissingEnvironment = errors.New("required environment variable is missing")
 var ErrSecretsNotDistinct = errors.New("identity secrets must be distinct")
-var ErrInsecureProductionCookie = errors.New("COOKIE_SECURE must be true in production")
+var ErrInsecureProductionCookie = errors.New("COOKIE_SECURE must be true in production unless ALLOW_INSECURE_HTTP is enabled")
 var ErrFakePaymentInProduction = errors.New("FAKE_PAYMENT_ENABLED must be false in production")
 var ErrInsecureProductionOrigin = errors.New("production web origins must be exact HTTPS origins")
+var ErrInvalidProductionOrigin = errors.New("production web origins must be exact HTTP or HTTPS origins")
 
 func secureHTTPSOrigin(value string) bool {
 	parsed, err := url.Parse(value)
-	return err == nil && parsed.Scheme == "https" && parsed.Host != "" && parsed.Path == "" && parsed.RawQuery == "" && parsed.Fragment == "" && parsed.User == nil
+	return err == nil && parsed.Scheme == "https" && exactParsedOrigin(parsed)
+}
+
+func exactWebOrigin(value string) bool {
+	parsed, err := url.Parse(value)
+	return err == nil && (parsed.Scheme == "http" || parsed.Scheme == "https") && exactParsedOrigin(parsed)
+}
+
+func exactParsedOrigin(parsed *url.URL) bool {
+	return parsed.Host != "" && parsed.Path == "" && parsed.RawQuery == "" && parsed.Fragment == "" && parsed.User == nil
 }
 
 func valueOrDefault(key, fallback string) string {

@@ -14,7 +14,14 @@ Health：
 
 生产只允许版本 migration。
 
-Identity 必需环境变量：`USER_SESSION_SECRET`、`ADMIN_SESSION_SECRET`、`USER_CSRF_SECRET`、`ADMIN_CSRF_SECRET`、`ADMIN_TOTP_ENCRYPTION_KEY`，以及内部监控使用的 `METRICS_TOKEN`，每项至少 32 字符且必须各不相同；生产设置 `COOKIE_SECURE=true`、`FAKE_PAYMENT_ENABLED=false` 并配置精确的 HTTPS `USER_WEB_ORIGIN` / `ADMIN_WEB_ORIGIN`。
+Identity 必需环境变量：`USER_SESSION_SECRET`、`ADMIN_SESSION_SECRET`、`USER_CSRF_SECRET`、`ADMIN_CSRF_SECRET`、`ADMIN_TOTP_ENCRYPTION_KEY`，以及内部监控使用的 `METRICS_TOKEN`，每项至少 32 字符且必须各不相同。`FAKE_PAYMENT_ENABLED=false` 始终是生产要求。
+
+Web 入口支持两种部署模式：
+
+- 公网 HTTPS、外部反代或 Cloudflare Tunnel：设置 `ALLOW_INSECURE_HTTP=false`、`COOKIE_SECURE=true`，并将 `USER_WEB_ORIGIN` / `ADMIN_WEB_ORIGIN` 配置为浏览器访问的精确 HTTPS Origin。TLS 可在平台容器之外终止，反代或 Tunnel 回源到 `http://localhost:8080`。
+- 受信任内网 HTTP：设置 `ALLOW_INSECURE_HTTP=true`、`COOKIE_SECURE=false`，并配置精确 HTTP Origin（含实际 IP/主机名和端口）。该模式不发送 Secure Cookie 或 HSTS，不得把端口直接暴露到公网。
+
+`ALLOW_INSECURE_HTTP` 只放宽 Web Origin/Cookie 校验，不影响密钥强度、Fake Payment、Provider TLS、RBAC、CSRF 或 Audit 要求。
 
 首次管理员通过容器内命令创建，密码只从进程环境读取：
 

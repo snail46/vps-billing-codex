@@ -91,3 +91,48 @@ func TestLoadRejectsUnsafeProductionConfiguration(t *testing.T) {
 		t.Fatalf("Load() error = %v", err)
 	}
 }
+
+func TestLoadRejectsInsecureProductionCookieByDefault(t *testing.T) {
+	setRequiredEnvironment(t)
+	t.Setenv("APP_ENV", "production")
+	t.Setenv("COOKIE_SECURE", "false")
+	t.Setenv("FAKE_PAYMENT_ENABLED", "false")
+	t.Setenv("USER_WEB_ORIGIN", "https://portal.example.com")
+	t.Setenv("ADMIN_WEB_ORIGIN", "https://admin.example.com")
+
+	if _, err := Load(); !errors.Is(err, ErrInsecureProductionCookie) {
+		t.Fatalf("Load() error = %v", err)
+	}
+}
+
+func TestLoadAllowsExplicitInsecureHTTPProductionDeployment(t *testing.T) {
+	setRequiredEnvironment(t)
+	t.Setenv("APP_ENV", "production")
+	t.Setenv("ALLOW_INSECURE_HTTP", "true")
+	t.Setenv("COOKIE_SECURE", "false")
+	t.Setenv("FAKE_PAYMENT_ENABLED", "false")
+	t.Setenv("USER_WEB_ORIGIN", "http://192.0.2.10:8080")
+	t.Setenv("ADMIN_WEB_ORIGIN", "http://192.0.2.10:8080")
+
+	config, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if !config.AllowInsecureHTTP || config.CookieSecure {
+		t.Fatalf("Load() config = %#v", config)
+	}
+}
+
+func TestLoadRejectsMalformedOriginWithInsecureHTTPEnabled(t *testing.T) {
+	setRequiredEnvironment(t)
+	t.Setenv("APP_ENV", "production")
+	t.Setenv("ALLOW_INSECURE_HTTP", "true")
+	t.Setenv("COOKIE_SECURE", "false")
+	t.Setenv("FAKE_PAYMENT_ENABLED", "false")
+	t.Setenv("USER_WEB_ORIGIN", "http://192.0.2.10:8080/path")
+	t.Setenv("ADMIN_WEB_ORIGIN", "http://192.0.2.10:8080")
+
+	if _, err := Load(); !errors.Is(err, ErrInvalidProductionOrigin) {
+		t.Fatalf("Load() error = %v", err)
+	}
+}

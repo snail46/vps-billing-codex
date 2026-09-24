@@ -4,7 +4,7 @@
 
 - Use immutable image tags and retain the previous tag.
 - Set distinct 32+ character application secrets and `METRICS_TOKEN` outside source control.
-- Production requires HTTPS origins, `COOKIE_SECURE=true`, `FAKE_PAYMENT_ENABLED=false`, and TLS for Runman and Direct Providers.
+- Public production ingress requires HTTPS origins, `ALLOW_INSECURE_HTTP=false`, `COOKIE_SECURE=true`, `FAKE_PAYMENT_ENABLED=false`, and TLS for Runman and Direct Providers. Isolated LAN deployments may explicitly set `ALLOW_INSECURE_HTTP=true` and `COOKIE_SECURE=false`; never expose that HTTP listener directly to the public Internet.
 - Confirm PostgreSQL and Redis persistence, backup capacity, alert routing, and at least one healthy Worker.
 
 ## Backup and restore drill
