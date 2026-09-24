@@ -90,7 +90,9 @@ jobs:
       - name: Start foundation stack
         run: docker compose -f deploy/docker-compose.yml up --build --detach --wait
       - name: Verify gateway health
-        run: curl --fail --show-error http://localhost:9090/health/ready
+        run: |
+          curl --fail --show-error http://localhost:9090/gateway-health
+          curl --fail --show-error http://localhost:9090/health/ready
       - name: Verify release security and metrics
         run: |
           set -Eeuo pipefail
