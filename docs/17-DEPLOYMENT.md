@@ -18,18 +18,22 @@ Identity 必需环境变量：`USER_SESSION_SECRET`、`ADMIN_SESSION_SECRET`、`
 
 Web 入口支持两种部署模式：
 
-- 公网 HTTPS、外部反代或 Cloudflare Tunnel：设置 `ALLOW_INSECURE_HTTP=false`、`COOKIE_SECURE=true`，并将 `USER_WEB_ORIGIN` / `ADMIN_WEB_ORIGIN` 配置为浏览器访问的精确 HTTPS Origin。TLS 可在平台容器之外终止，反代或 Tunnel 默认回源到 `http://localhost:9090`。
+Gateway 发布两个相互隔离的入口：`APP_PORT`（默认 `9090`）只承载用户页面和用户 API，`ADMIN_PORT`（默认 `9092`）只承载管理页面和管理 API。管理页面在管理端口根路径 `/` 提供。
+
+- 公网 HTTPS、外部反代或 Cloudflare Tunnel：设置 `ALLOW_INSECURE_HTTP=false`、`COOKIE_SECURE=true`，并将 `USER_WEB_ORIGIN` / `ADMIN_WEB_ORIGIN` 配置为浏览器访问的精确 HTTPS Origin。TLS 可在平台容器之外终止；用户域名回源到 `http://localhost:9090`，管理域名回源到 `http://localhost:9092`。
 - 受信任内网 HTTP：设置 `ALLOW_INSECURE_HTTP=true`、`COOKIE_SECURE=false`，并配置精确 HTTP Origin（含实际 IP/主机名和端口）。该模式不发送 Secure Cookie 或 HSTS，不得把端口直接暴露到公网。
 
 `ALLOW_INSECURE_HTTP` 只放宽 Web Origin/Cookie 校验，不影响密钥强度、Fake Payment、Provider TLS、RBAC、CSRF 或 Audit 要求。
 
-首次管理员通过容器内命令创建，密码只从进程环境读取：
+首次管理员由一次性 `bootstrap-admin` 服务在 migration 后创建。邮箱、显示名和密码从部署环境读取：
 
-```sh
-ADMIN_BOOTSTRAP_PASSWORD='replace-with-a-strong-secret' /app/bootstrap-admin --email admin@example.com --display-name Administrator
+```dotenv
+ADMIN_BOOTSTRAP_EMAIL=admin@example.com
+ADMIN_BOOTSTRAP_DISPLAY_NAME=Administrator
+ADMIN_BOOTSTRAP_PASSWORD=replace-with-a-strong-initial-admin-password
 ```
 
-命令在同一数据库事务中创建管理员、分配 `super_admin` 并记录 Audit；不会生成默认账户或硬编码 ID。
+`ADMIN_BOOTSTRAP_EMAIL` 与 `ADMIN_BOOTSTRAP_PASSWORD` 必须同时设置或同时留空。命令在同一数据库事务中创建管理员、分配 `super_admin` 并记录 Audit；已有相同邮箱时幂等退出，不覆盖密码、不重复 Audit。系统不会生成默认账户或硬编码 ID。初始化成功后，应从部署环境中同时移除 bootstrap 邮箱和密码。
 
 Fake Payment 仅用于 V1 验收和非生产测试，回调使用 `FAKE_PAYMENT_WEBHOOK_SECRET` 的 HMAC-SHA256 签名。部署必须使用独立的至少 32 字符密钥。生产接入真实网关时必须新增独立 Adapter、验签与 Contract Test，不得复用 Fake secret。
 

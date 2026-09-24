@@ -6,7 +6,7 @@ x-backend-environment: &backend-environment
   DATABASE_URL: "postgres://${POSTGRES_USER:-vps_billing}:${POSTGRES_PASSWORD:-development-only}@postgres:5432/${POSTGRES_DB:-vps_billing}?sslmode=disable"
   REDIS_URL: "redis://redis:6379/0"
   USER_WEB_ORIGIN: "http://localhost:${APP_PORT:-9090}"
-  ADMIN_WEB_ORIGIN: "http://localhost:${APP_PORT:-9090}"
+  ADMIN_WEB_ORIGIN: "http://localhost:${ADMIN_PORT:-9092}"
   USER_SESSION_SECRET: "development-user-session-secret-change-before-production"
   ADMIN_SESSION_SECRET: "development-admin-session-secret-change-before-production"
   USER_CSRF_SECRET: "development-user-csrf-secret-change-before-production"
@@ -61,12 +61,26 @@ services:
         condition: service_healthy
     restart: "no"
 
+  bootstrap-admin:
+    image: vps-billing-backend:local
+    build: *backend-build
+    entrypoint: ["/app/bootstrap-admin"]
+    environment:
+      <<: *backend-environment
+      ADMIN_BOOTSTRAP_EMAIL: ${ADMIN_BOOTSTRAP_EMAIL:-}
+      ADMIN_BOOTSTRAP_DISPLAY_NAME: ${ADMIN_BOOTSTRAP_DISPLAY_NAME:-}
+      ADMIN_BOOTSTRAP_PASSWORD: ${ADMIN_BOOTSTRAP_PASSWORD:-}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: "no"
+
   server:
     image: vps-billing-backend:local
     build: *backend-build
     environment: *backend-environment
     depends_on:
-      migrate:
+      bootstrap-admin:
         condition: service_completed_successfully
       redis:
         condition: service_healthy
@@ -118,6 +132,7 @@ services:
     image: nginx:1.29-alpine
     ports:
       - "${APP_PORT:-9090}:80"
+      - "${ADMIN_PORT:-9092}:81"
     volumes:
       - ./nginx/gateway.conf:/etc/nginx/conf.d/default.conf:ro
     depends_on:

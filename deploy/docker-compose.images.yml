@@ -60,11 +60,23 @@ services:
       postgres: {condition: service_healthy}
     restart: "no"
 
+  bootstrap-admin:
+    <<: *backend-image
+    entrypoint: ["/app/bootstrap-admin"]
+    environment:
+      <<: *backend-environment
+      ADMIN_BOOTSTRAP_EMAIL: ${ADMIN_BOOTSTRAP_EMAIL:-}
+      ADMIN_BOOTSTRAP_DISPLAY_NAME: ${ADMIN_BOOTSTRAP_DISPLAY_NAME:-}
+      ADMIN_BOOTSTRAP_PASSWORD: ${ADMIN_BOOTSTRAP_PASSWORD:-}
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+    restart: "no"
+
   server:
     <<: *backend-image
     environment: *backend-environment
     depends_on:
-      migrate: {condition: service_completed_successfully}
+      bootstrap-admin: {condition: service_completed_successfully}
       redis: {condition: service_healthy}
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8080/health/ready"]
@@ -106,7 +118,9 @@ services:
   reverse-proxy:
     image: ghcr.io/snail46/vps-billing-codex/gateway:${VPS_BILLING_IMAGE_TAG:-v1}
     pull_policy: always
-    ports: ["${APP_PORT:-9090}:80"]
+    ports:
+      - "${APP_PORT:-9090}:80"
+      - "${ADMIN_PORT:-9092}:81"
     depends_on: [user-web, admin-web]
 
 volumes:

@@ -45,7 +45,7 @@ echo "$GITHUB_TOKEN" | docker login ghcr.io -u USERNAME --password-stdin
 访问地址：
 
 - 用户端：`http://localhost:9090/`
-- 管理端：`http://localhost:9090/admin/`
+- 管理端：`http://localhost:9092/`
 - Liveness：`http://localhost:9090/health/live`
 - Readiness：`http://localhost:9090/health/ready`
 
@@ -55,14 +55,14 @@ echo "$GITHUB_TOKEN" | docker login ghcr.io -u USERNAME --password-stdin
 ALLOW_INSECURE_HTTP=false
 COOKIE_SECURE=true
 USER_WEB_ORIGIN=https://portal.example.com
-ADMIN_WEB_ORIGIN=https://portal.example.com
+ADMIN_WEB_ORIGIN=https://admin.example.com
 ```
 
-此时外部入口使用 HTTPS，Tunnel/反代到本机 `http://localhost:9090` 即可。
+此时把用户域名反代到本机 `http://localhost:9090`，管理域名反代到 `http://localhost:9092`。两个入口在 Gateway 层隔离：用户端口不暴露管理 API，管理端口不暴露用户 API。
 
 ### Portainer Stack
 
-请使用完整的 `deploy/docker-compose.images.yml` 创建 Stack，不要逐个创建镜像容器。只有 `reverse-proxy` 服务发布宿主机端口 `9090`，其他服务只在 Stack 内部网络通信。Gateway 配置已经包含在预构建镜像中，不需要在 Portainer 主机准备额外的 `gateway.conf` 文件。
+请使用完整的 `deploy/docker-compose.images.yml` 创建 Stack，不要逐个创建镜像容器。只有 `reverse-proxy` 服务发布宿主机端口：用户端 `9090`、管理端 `9092`；其他服务只在 Stack 内部网络通信。Gateway 配置已经包含在预构建镜像中，不需要在 Portainer 主机准备额外的 `gateway.conf` 文件。
 
 ## 从源码启动
 
@@ -72,13 +72,15 @@ docker compose --env-file .env -f deploy/docker-compose.yml up --build --detach 
 
 ## 初始化管理员
 
-```sh
-docker compose --env-file .env -f deploy/docker-compose.images.yml exec \
-  -e ADMIN_BOOTSTRAP_PASSWORD='replace-with-a-strong-secret' \
-  server /app/bootstrap-admin \
-  --email admin@example.com \
-  --display-name Administrator
+在 `.env` 中设置以下变量，Stack 首次启动时会在 migration 后自动创建 `super_admin`：
+
+```dotenv
+ADMIN_BOOTSTRAP_EMAIL=admin@example.com
+ADMIN_BOOTSTRAP_DISPLAY_NAME=Administrator
+ADMIN_BOOTSTRAP_PASSWORD=replace-with-a-strong-initial-admin-password
 ```
+
+初始化是幂等的：相同邮箱已存在时不会重置密码或重复写入 Audit。首次初始化成功后，建议从部署环境中同时移除 `ADMIN_BOOTSTRAP_EMAIL` 和 `ADMIN_BOOTSTRAP_PASSWORD`。
 
 ## Provider 配置
 

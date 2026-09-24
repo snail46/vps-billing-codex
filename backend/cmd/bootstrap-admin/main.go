@@ -22,12 +22,17 @@ import (
 )
 
 func main() {
-	email := flag.String("email", "", "administrator email")
-	displayName := flag.String("display-name", "", "administrator display name")
+	email := flag.String("email", os.Getenv("ADMIN_BOOTSTRAP_EMAIL"), "administrator email")
+	displayName := flag.String("display-name", os.Getenv("ADMIN_BOOTSTRAP_DISPLAY_NAME"), "administrator display name")
 	flag.Parse()
+	normalizedEmail := strings.ToLower(strings.TrimSpace(*email))
 	rawPassword := os.Getenv("ADMIN_BOOTSTRAP_PASSWORD")
-	if strings.TrimSpace(*email) == "" || rawPassword == "" {
-		fmt.Fprintln(os.Stderr, "email and ADMIN_BOOTSTRAP_PASSWORD are required")
+	if normalizedEmail == "" && rawPassword == "" {
+		fmt.Println("administrator bootstrap not configured; skipping")
+		return
+	}
+	if normalizedEmail == "" || rawPassword == "" {
+		fmt.Fprintln(os.Stderr, "ADMIN_BOOTSTRAP_EMAIL (or --email) and ADMIN_BOOTSTRAP_PASSWORD must be configured together")
 		os.Exit(2)
 	}
 	settings, err := config.Load()
@@ -41,39 +46,52 @@ func main() {
 		fail(err)
 	}
 	defer pool.Close()
-	if err := bootstrap(ctx, pool, strings.ToLower(strings.TrimSpace(*email)), *displayName, rawPassword); err != nil {
+	created, err := bootstrap(ctx, pool, normalizedEmail, strings.TrimSpace(*displayName), rawPassword)
+	if err != nil {
 		fail(err)
 	}
-	fmt.Println("administrator created")
+	if created {
+		fmt.Println("administrator created")
+		return
+	}
+	fmt.Println("administrator already exists; bootstrap skipped")
 }
 
-func bootstrap(ctx context.Context, pool *pgxpool.Pool, email, displayName, rawPassword string) error {
-	hash, err := password.Hash(rawPassword)
-	if err != nil {
-		return err
-	}
+func bootstrap(ctx context.Context, pool *pgxpool.Pool, email, displayName, rawPassword string) (bool, error) {
 	tx, err := pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
-		return err
+		return false, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	queries := db.New(tx)
+	if _, err := queries.GetAdminByEmail(ctx, email); err == nil {
+		return false, nil
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return false, err
+	}
+	hash, err := password.Hash(rawPassword)
+	if err != nil {
+		return false, err
+	}
 	adminID, err := uuid.NewV7()
 	if err != nil {
-		return err
+		return false, err
 	}
 	admin, err := queries.CreateAdmin(ctx, db.CreateAdminParams{ID: adminID, Email: email, PasswordHash: hash, DisplayName: pgtype.Text{String: displayName, Valid: displayName != ""}})
 	if err != nil {
-		return err
+		return false, err
 	}
 	if err := queries.AssignAdminRole(ctx, db.AssignAdminRoleParams{AdminID: admin.ID, Key: "super_admin"}); err != nil {
-		return err
+		return false, err
 	}
 	after, _ := json.Marshal(map[string]any{"email": email, "role": "super_admin"})
 	if err := queries.CreateAuditEvent(ctx, db.CreateAuditEventParams{ID: uuid.New(), ActorType: "system", Action: "admin.bootstrap", ResourceType: "admin", ResourceID: &admin.ID, BeforeData: []byte("null"), AfterData: after, IpAddress: address("127.0.0.1"), UserAgent: pgtype.Text{String: "bootstrap-admin", Valid: true}}); err != nil {
-		return err
+		return false, err
 	}
-	return tx.Commit(ctx)
+	if err := tx.Commit(ctx); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func address(value string) *netip.Addr { parsed, _ := netip.ParseAddr(value); return &parsed }
