@@ -270,6 +270,15 @@ jobs:
           test -f "$restore_config/.env.example"
           docker compose -f deploy/docker-compose.yml up --detach --wait server worker runman-gateway
           docker compose -f deploy/docker-compose.yml restart reverse-proxy
+          proxy_ready=false
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent --output /dev/null http://localhost:8080/health/ready; then
+              proxy_ready=true
+              break
+            fi
+            sleep 1
+          done
+          test "$proxy_ready" = "true"
           METRICS_TOKEN='development-metrics-token-change-before-production' deploy/scripts/verify-release.sh
       - name: Show service logs
         if: failure()
