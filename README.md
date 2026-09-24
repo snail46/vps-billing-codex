@@ -20,6 +20,7 @@ VPS Billing V1 是一个面向 VPS 销售、计费和自动化交付的模块化
 - `ghcr.io/snail46/vps-billing-codex/backend:v1`
 - `ghcr.io/snail46/vps-billing-codex/user-web:v1`
 - `ghcr.io/snail46/vps-billing-codex/admin-web:v1`
+- `ghcr.io/snail46/vps-billing-codex/gateway:v1`
 
 复制并修改镜像部署配置，所有生产密钥必须独立且不少于 32 字符：
 
@@ -58,6 +59,10 @@ ADMIN_WEB_ORIGIN=https://portal.example.com
 ```
 
 此时外部入口使用 HTTPS，Tunnel/反代到本机 `http://localhost:9090` 即可。
+
+### Portainer Stack
+
+请使用完整的 `deploy/docker-compose.images.yml` 创建 Stack，不要逐个创建镜像容器。只有 `reverse-proxy` 服务发布宿主机端口 `9090`，其他服务只在 Stack 内部网络通信。Gateway 配置已经包含在预构建镜像中，不需要在 Portainer 主机准备额外的 `gateway.conf` 文件。
 
 ## 从源码启动
 

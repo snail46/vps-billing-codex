@@ -2,7 +2,7 @@
 
 V1：reverse-proxy、user-web、admin-web、server、worker、runman-gateway、postgres、redis。
 
-GitHub Actions 发布的 backend、user-web、admin-web 镜像必须同时包含 `linux/amd64` 与 `linux/arm64` manifest；部署端使用标准 Compose pull 流程自动选择主机架构。
+GitHub Actions 发布的 backend、user-web、admin-web、gateway 镜像必须同时包含 `linux/amd64` 与 `linux/arm64` manifest；部署端使用标准 Compose pull 流程自动选择主机架构。预构建部署的 Gateway 配置包含在镜像内，Portainer Stack 不依赖宿主机相对路径 bind mount。
 
 环境：development/staging/production。
 

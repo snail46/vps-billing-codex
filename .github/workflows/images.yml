@@ -23,6 +23,8 @@ jobs:
             dockerfile: frontend/user-web/Dockerfile
           - component: admin-web
             dockerfile: frontend/admin-web/Dockerfile
+          - component: gateway
+            dockerfile: deploy/nginx/Dockerfile
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-qemu-action@v3
