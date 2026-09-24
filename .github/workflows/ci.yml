@@ -90,11 +90,11 @@ jobs:
       - name: Start foundation stack
         run: docker compose -f deploy/docker-compose.yml up --build --detach --wait
       - name: Verify gateway health
-        run: curl --fail --show-error http://localhost:8080/health/ready
+        run: curl --fail --show-error http://localhost:9090/health/ready
       - name: Verify release security and metrics
         run: |
           set -Eeuo pipefail
-          headers=$(curl --fail --silent --show-error --dump-header - --output /dev/null http://localhost:8080/health/live)
+          headers=$(curl --fail --silent --show-error --dump-header - --output /dev/null http://localhost:9090/health/live)
           echo "$headers" | grep -qi '^x-content-type-options: nosniff'
           echo "$headers" | grep -qi '^x-frame-options: DENY'
           docker compose -f deploy/docker-compose.yml exec -T server \
@@ -112,16 +112,16 @@ jobs:
           response=$(curl --fail-with-body --show-error --cookie-jar /tmp/user.cookies \
             -H 'Content-Type: application/json' \
             -d '{"email":"ci-user@example.com","password":"ci-password-is-long-enough","locale":"en-US","timezone":"UTC"}' \
-            http://localhost:8080/api/v1/auth/register)
+            http://localhost:9090/api/v1/auth/register)
           csrf=$(echo "$response" | jq -er '.data.csrf_token')
           user_id=$(echo "$response" | jq -er '.data.principal.id')
           stage="verify user session"
-          curl --fail-with-body --show-error --cookie /tmp/user.cookies http://localhost:8080/api/v1/auth/me
+          curl --fail-with-body --show-error --cookie /tmp/user.cookies http://localhost:9090/api/v1/auth/me
           stage="create order"
           order=$(curl --fail-with-body --show-error --cookie /tmp/user.cookies \
             -H 'Content-Type: application/json' -H "X-CSRF-Token: $csrf" -H 'Idempotency-Key: ci-order-idempotency-1' \
             -d '{"plan_id":"10000000-0000-7000-8000-000000000002","quantity":1}' \
-            http://localhost:8080/api/v1/orders)
+            http://localhost:9090/api/v1/orders)
           payment_id=$(echo "$order" | jq -er '.data.payment_id')
           order_id=$(echo "$order" | jq -er '.data.id')
           payload=$(jq -cn --arg payment_id "$payment_id" '{event_id:"ci-payment-event-1",payment_id:$payment_id,external_payment_id:"ci-external-payment-1",status:"succeeded",amount_minor:1299,currency:"USD"}')
@@ -129,7 +129,7 @@ jobs:
           stage="deliver payment webhook 100 times"
           for attempt in $(seq 1 100); do
             webhook_response=$(mktemp)
-            if ! curl --fail-with-body --silent --show-error --output "$webhook_response" -H 'Content-Type: application/json' -H "X-Fake-Signature: $signature" -d "$payload" http://localhost:8080/api/v1/webhooks/payments/fake; then
+            if ! curl --fail-with-body --silent --show-error --output "$webhook_response" -H 'Content-Type: application/json' -H "X-Fake-Signature: $signature" -d "$payload" http://localhost:9090/api/v1/webhooks/payments/fake; then
               webhook_error=$(tr '\n' ' ' < "$webhook_response" | sed 's/%/%25/g; s/\r/%0D/g; s/\n/%0A/g')
               echo "::error title=Payment webhook failed::attempt=${attempt}; body=${webhook_error}"
               exit 1
@@ -158,26 +158,26 @@ jobs:
           echo "$provision_state" | grep -Eq '\|succeeded\|active\|running\|fulfilled\|committed$'
           operation_id=$(echo "$provision_state" | cut -d'|' -f1)
           stage="verify recoverable operation endpoint"
-          curl --fail-with-body --show-error --cookie /tmp/user.cookies "http://localhost:8080/api/v1/operations/$operation_id" | jq -e '.data.status == "succeeded" and .data.progress == 100 and (.data.steps | length) == 11'
+          curl --fail-with-body --show-error --cookie /tmp/user.cookies "http://localhost:9090/api/v1/operations/$operation_id" | jq -e '.data.status == "succeeded" and .data.progress == 100 and (.data.steps | length) == 11'
           ready_notification_count=$(docker compose -f deploy/docker-compose.yml exec -T postgres psql -U vps_billing -d vps_billing -tAc "SELECT count(*) FROM notifications WHERE user_id='$user_id' AND type='instance_ready'")
           test "$ready_notification_count" = "1"
           stage="verify user portal instance resources"
-          instances=$(curl --fail-with-body --show-error --cookie /tmp/user.cookies http://localhost:8080/api/v1/instances)
+          instances=$(curl --fail-with-body --show-error --cookie /tmp/user.cookies http://localhost:9090/api/v1/instances)
           instance_id=$(echo "$instances" | jq -er '.data.items | if length == 1 and .[0].observed_state == "running" then .[0].id else error("instance not running") end')
-          curl --fail-with-body --show-error --cookie /tmp/user.cookies "http://localhost:8080/api/v1/instances/$instance_id" | jq -e '.data.observed_state == "running"'
-          curl --fail-with-body --show-error --cookie /tmp/user.cookies "http://localhost:8080/api/v1/instances/$instance_id/networks" | jq -e '.data.items | type == "array"'
-          curl --fail-with-body --show-error --cookie /tmp/user.cookies "http://localhost:8080/api/v1/instances/$instance_id/traffic" | jq -e '.data.items | type == "array"'
-          curl --fail-with-body --show-error --cookie /tmp/user.cookies http://localhost:8080/api/v1/notifications | jq -e '.data.items | length == 1'
+          curl --fail-with-body --show-error --cookie /tmp/user.cookies "http://localhost:9090/api/v1/instances/$instance_id" | jq -e '.data.observed_state == "running"'
+          curl --fail-with-body --show-error --cookie /tmp/user.cookies "http://localhost:9090/api/v1/instances/$instance_id/networks" | jq -e '.data.items | type == "array"'
+          curl --fail-with-body --show-error --cookie /tmp/user.cookies "http://localhost:9090/api/v1/instances/$instance_id/traffic" | jq -e '.data.items | type == "array"'
+          curl --fail-with-body --show-error --cookie /tmp/user.cookies http://localhost:9090/api/v1/notifications | jq -e '.data.items | length == 1'
           stage="create and reply to support ticket"
-          ticket=$(curl --fail-with-body --show-error --cookie /tmp/user.cookies -H 'Content-Type: application/json' -H "X-CSRF-Token: $csrf" -d '{"subject":"CI portal issue","priority":"normal","message":"Initial details"}' http://localhost:8080/api/v1/tickets)
+          ticket=$(curl --fail-with-body --show-error --cookie /tmp/user.cookies -H 'Content-Type: application/json' -H "X-CSRF-Token: $csrf" -d '{"subject":"CI portal issue","priority":"normal","message":"Initial details"}' http://localhost:9090/api/v1/tickets)
           ticket_id=$(echo "$ticket" | jq -er '.data.id')
-          curl --fail-with-body --show-error --cookie /tmp/user.cookies "http://localhost:8080/api/v1/tickets/$ticket_id" | jq -e '.data.messages | length == 1'
-          curl --fail-with-body --show-error --cookie /tmp/user.cookies -H 'Content-Type: application/json' -H "X-CSRF-Token: $csrf" -d '{"message":"Additional details"}' "http://localhost:8080/api/v1/tickets/$ticket_id/messages" | jq -e '.data.sender_type == "user"'
+          curl --fail-with-body --show-error --cookie /tmp/user.cookies "http://localhost:9090/api/v1/tickets/$ticket_id" | jq -e '.data.messages | length == 1'
+          curl --fail-with-body --show-error --cookie /tmp/user.cookies -H 'Content-Type: application/json' -H "X-CSRF-Token: $csrf" -d '{"message":"Additional details"}' "http://localhost:9090/api/v1/tickets/$ticket_id/messages" | jq -e '.data.sender_type == "user"'
           stage="restart instance through recoverable operation"
-          restart=$(curl --fail-with-body --show-error --cookie /tmp/user.cookies -H 'Content-Type: application/json' -H "X-CSRF-Token: $csrf" -H 'Idempotency-Key: ci-instance-restart-1' -d '{}' "http://localhost:8080/api/v1/instances/$instance_id/restart")
+          restart=$(curl --fail-with-body --show-error --cookie /tmp/user.cookies -H 'Content-Type: application/json' -H "X-CSRF-Token: $csrf" -H 'Idempotency-Key: ci-instance-restart-1' -d '{}' "http://localhost:9090/api/v1/instances/$instance_id/restart")
           restart_operation_id=$(echo "$restart" | jq -er '.data.operation_id')
           for wait_attempt in $(seq 1 20); do
-            restart_status=$(curl --fail-with-body --silent --show-error --cookie /tmp/user.cookies "http://localhost:8080/api/v1/operations/$restart_operation_id" | jq -r '.data.status')
+            restart_status=$(curl --fail-with-body --silent --show-error --cookie /tmp/user.cookies "http://localhost:9090/api/v1/operations/$restart_operation_id" | jq -r '.data.status')
             test "$restart_status" = "succeeded" && break
             sleep 1
           done
@@ -189,13 +189,13 @@ jobs:
           stage="create renewal order"
           renewal_order=$(curl --fail-with-body --show-error --cookie /tmp/user.cookies \
             -H 'Content-Type: application/json' -H "X-CSRF-Token: $csrf" -H 'Idempotency-Key: ci-renewal-idempotency-1' \
-            -d '{}' http://localhost:8080/api/v1/subscriptions/10000000-0000-7000-8000-000000000003/renewals)
+            -d '{}' http://localhost:9090/api/v1/subscriptions/10000000-0000-7000-8000-000000000003/renewals)
           renewal_payment_id=$(echo "$renewal_order" | jq -er '.data.payment_id')
           renewal_payload=$(jq -cn --arg payment_id "$renewal_payment_id" '{event_id:"ci-renewal-event-1",payment_id:$payment_id,external_payment_id:"ci-renewal-external-1",status:"succeeded",amount_minor:1299,currency:"USD"}')
           renewal_signature=$(printf '%s' "$renewal_payload" | openssl dgst -sha256 -hmac 'development-fake-payment-secret-change-before-production' | awk '{print $2}')
           stage="deliver duplicate renewal callbacks"
           for attempt in $(seq 1 100); do
-            curl --fail-with-body --silent --show-error -H 'Content-Type: application/json' -H "X-Fake-Signature: $renewal_signature" -d "$renewal_payload" http://localhost:8080/api/v1/webhooks/payments/fake > /dev/null
+            curl --fail-with-body --silent --show-error -H 'Content-Type: application/json' -H "X-Fake-Signature: $renewal_signature" -d "$renewal_payload" http://localhost:9090/api/v1/webhooks/payments/fake > /dev/null
           done
           renewal_ledger_count=$(docker compose -f deploy/docker-compose.yml exec -T postgres psql -U vps_billing -d vps_billing -tAc "SELECT count(*) FROM ledger_transactions WHERE type='payment_capture' AND reference_id='$renewal_payment_id'")
           renewal_event_count=$(docker compose -f deploy/docker-compose.yml exec -T postgres psql -U vps_billing -d vps_billing -tAc "SELECT count(*) FROM outbox_events WHERE event_type='subscription.renewed.v1' AND aggregate_id='10000000-0000-7000-8000-000000000003'")
@@ -205,7 +205,7 @@ jobs:
           test "$subscription_version" = "2"
           stage="schedule subscription cancellation"
           curl --fail-with-body --show-error --cookie /tmp/user.cookies -H 'Content-Type: application/json' -H "X-CSRF-Token: $csrf" \
-            -X PUT -d '{"cancel":true}' http://localhost:8080/api/v1/subscriptions/10000000-0000-7000-8000-000000000003/cancel-at-period-end
+            -X PUT -d '{"cancel":true}' http://localhost:9090/api/v1/subscriptions/10000000-0000-7000-8000-000000000003/cancel-at-period-end
           docker compose -f deploy/docker-compose.yml exec -T postgres psql -U vps_billing -d vps_billing -v ON_ERROR_STOP=1 -c \
             "UPDATE subscriptions SET current_period_end=now()-interval '1 minute',next_due_at=now()-interval '1 minute' WHERE id='10000000-0000-7000-8000-000000000003';"
           stage="wait for lifecycle cancellation"
@@ -216,7 +216,7 @@ jobs:
           done
           test "$subscription_status" = "cancelled"
           stage="logout user"
-          curl --fail-with-body --show-error --cookie /tmp/user.cookies -H "X-CSRF-Token: $csrf" -X POST http://localhost:8080/api/v1/auth/logout
+          curl --fail-with-body --show-error --cookie /tmp/user.cookies -H "X-CSRF-Token: $csrf" -X POST http://localhost:9090/api/v1/auth/logout
           stage="bootstrap admin"
           docker compose -f deploy/docker-compose.yml exec -T \
             -e ADMIN_BOOTSTRAP_PASSWORD='ci-admin-password-is-long-enough' \
@@ -225,19 +225,19 @@ jobs:
           admin_response=$(curl --fail-with-body --show-error --cookie-jar /tmp/admin.cookies \
             -H 'Content-Type: application/json' \
             -d '{"email":"ci-admin@example.com","password":"ci-admin-password-is-long-enough"}' \
-            http://localhost:8080/api/v1/admin/auth/login)
+            http://localhost:9090/api/v1/admin/auth/login)
           stage="verify admin permissions"
           echo "$admin_response" | jq -e '.data.principal.permissions | index("admins.manage")'
           admin_csrf=$(echo "$admin_response" | jq -er '.data.csrf_token')
           stage="verify admin control plane reads"
-          curl --fail-with-body --show-error --cookie /tmp/admin.cookies http://localhost:8080/api/v1/admin/dashboard | jq -e '.data.metrics.users >= 1'
+          curl --fail-with-body --show-error --cookie /tmp/admin.cookies http://localhost:9090/api/v1/admin/dashboard | jq -e '.data.metrics.users >= 1'
           for resource in users products orders payments ledger subscriptions instances nodes providers operations tickets audit admins roles settings; do
-            curl --fail-with-body --show-error --cookie /tmp/admin.cookies "http://localhost:8080/api/v1/admin/$resource" | jq -e '.data.items | type == "array"'
+            curl --fail-with-body --show-error --cookie /tmp/admin.cookies "http://localhost:9090/api/v1/admin/$resource" | jq -e '.data.items | type == "array"'
           done
-          curl --fail-with-body --show-error --cookie /tmp/admin.cookies "http://localhost:8080/api/v1/admin/instances/$instance_id" | jq -e --arg id "$instance_id" '.data.id == $id'
-          curl --fail-with-body --show-error --cookie /tmp/admin.cookies "http://localhost:8080/api/v1/admin/operations/$operation_id" | jq -e '.data.steps | length == 11'
+          curl --fail-with-body --show-error --cookie /tmp/admin.cookies "http://localhost:9090/api/v1/admin/instances/$instance_id" | jq -e --arg id "$instance_id" '.data.id == $id'
+          curl --fail-with-body --show-error --cookie /tmp/admin.cookies "http://localhost:9090/api/v1/admin/operations/$operation_id" | jq -e '.data.steps | length == 11'
           stage="verify audited balanced admin wallet adjustment"
-          adjustment=$(curl --fail-with-body --show-error --cookie /tmp/admin.cookies -H 'Content-Type: application/json' -H "X-CSRF-Token: $admin_csrf" -d "{\"user_id\":\"$user_id\",\"currency\":\"USD\",\"amount_minor\":500,\"description\":\"CI service credit\"}" http://localhost:8080/api/v1/admin/ledger/adjustments)
+          adjustment=$(curl --fail-with-body --show-error --cookie /tmp/admin.cookies -H 'Content-Type: application/json' -H "X-CSRF-Token: $admin_csrf" -d "{\"user_id\":\"$user_id\",\"currency\":\"USD\",\"amount_minor\":500,\"description\":\"CI service credit\"}" http://localhost:9090/api/v1/admin/ledger/adjustments)
           adjustment_id=$(echo "$adjustment" | jq -er '.data.transaction_id')
           adjustment_entries=$(docker compose -f deploy/docker-compose.yml exec -T postgres psql -U vps_billing -d vps_billing -tAc "SELECT count(*) FROM ledger_entries WHERE transaction_id='$adjustment_id'")
           adjustment_balance=$(docker compose -f deploy/docker-compose.yml exec -T postgres psql -U vps_billing -d vps_billing -tAc "SELECT COALESCE(sum(CASE direction WHEN 'debit' THEN amount_minor ELSE -amount_minor END),0) FROM ledger_entries WHERE transaction_id='$adjustment_id'")
@@ -246,8 +246,8 @@ jobs:
           test "$adjustment_balance" = "0"
           test "$adjustment_audit" = "1"
           stage="verify secret setting masking and audit"
-          curl --fail-with-body --show-error --cookie /tmp/admin.cookies -H 'Content-Type: application/json' -H "X-CSRF-Token: $admin_csrf" -X PUT -d '{"value":"private-ci-value","is_secret":true}' http://localhost:8080/api/v1/admin/settings/ci.secret | jq -e '.data.value == "***"'
-          curl --fail-with-body --show-error --cookie /tmp/admin.cookies http://localhost:8080/api/v1/admin/settings | jq -e '.data.items[] | select(.key == "ci.secret") | .value == "***"'
+          curl --fail-with-body --show-error --cookie /tmp/admin.cookies -H 'Content-Type: application/json' -H "X-CSRF-Token: $admin_csrf" -X PUT -d '{"value":"private-ci-value","is_secret":true}' http://localhost:9090/api/v1/admin/settings/ci.secret | jq -e '.data.value == "***"'
+          curl --fail-with-body --show-error --cookie /tmp/admin.cookies http://localhost:9090/api/v1/admin/settings | jq -e '.data.items[] | select(.key == "ci.secret") | .value == "***"'
       - name: Exercise encrypted backup and restore
         run: |
           set -Eeuo pipefail
@@ -272,7 +272,7 @@ jobs:
           docker compose -f deploy/docker-compose.yml restart reverse-proxy
           proxy_ready=false
           for attempt in $(seq 1 30); do
-            if curl --fail --silent --output /dev/null http://localhost:8080/health/ready; then
+            if curl --fail --silent --output /dev/null http://localhost:9090/health/ready; then
               proxy_ready=true
               break
             fi

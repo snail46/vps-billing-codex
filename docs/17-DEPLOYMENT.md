@@ -18,7 +18,7 @@ Identity 必需环境变量：`USER_SESSION_SECRET`、`ADMIN_SESSION_SECRET`、`
 
 Web 入口支持两种部署模式：
 
-- 公网 HTTPS、外部反代或 Cloudflare Tunnel：设置 `ALLOW_INSECURE_HTTP=false`、`COOKIE_SECURE=true`，并将 `USER_WEB_ORIGIN` / `ADMIN_WEB_ORIGIN` 配置为浏览器访问的精确 HTTPS Origin。TLS 可在平台容器之外终止，反代或 Tunnel 回源到 `http://localhost:8080`。
+- 公网 HTTPS、外部反代或 Cloudflare Tunnel：设置 `ALLOW_INSECURE_HTTP=false`、`COOKIE_SECURE=true`，并将 `USER_WEB_ORIGIN` / `ADMIN_WEB_ORIGIN` 配置为浏览器访问的精确 HTTPS Origin。TLS 可在平台容器之外终止，反代或 Tunnel 默认回源到 `http://localhost:9090`。
 - 受信任内网 HTTP：设置 `ALLOW_INSECURE_HTTP=true`、`COOKIE_SECURE=false`，并配置精确 HTTP Origin（含实际 IP/主机名和端口）。该模式不发送 Secure Cookie 或 HSTS，不得把端口直接暴露到公网。
 
 `ALLOW_INSECURE_HTTP` 只放宽 Web Origin/Cookie 校验，不影响密钥强度、Fake Payment、Provider TLS、RBAC、CSRF 或 Audit 要求。
@@ -41,7 +41,7 @@ Worker 需要访问 Redis Stream `operation-queue`（consumer group `operation-w
 
 Direct LXD 部署使用 `provider_type=lxdapi`。Provider `endpoint` 必须为受信任的 HTTPS LXD 地址，`credential_ref` 只允许大写字母、数字和下划线。若引用为 `LXD_PRIMARY`，Worker 环境必须提供 `LXD_PRIMARY_CLIENT_CERT_PEM`、`LXD_PRIMARY_CLIENT_KEY_PEM`、`LXD_PRIMARY_SERVER_CA_PEM`。Provider `config` 可包含 `project`、`image_server`、`operation_timeout_seconds`；证书和私钥禁止写入数据库或日志。Node `external_ref` 必须对应 LXD cluster member target。
 
-Runman Gateway 默认监听 `RUNMAN_GATEWAY_ADDRESS=:9090`。生产必须同时配置 `RUNMAN_TLS_CERT_FILE` 与 `RUNMAN_TLS_KEY_FILE`；`RUNMAN_INSECURE=true` 只允许非生产本地/CI 环境。先创建 `provider_type=runman` 的 Provider 与 Node；该 Node 的 `provider_node_id` 必须留空（自动回退平台 Node UUID）或显式设置为同一个平台 Node UUID。随后执行 `/app/issue-agent-token --node-id <uuid>`；token 只显示一次，数据库只保存摘要。Agent 使用 `authorization: Bearer <token>` 主动连接 Gateway。负载均衡必须保持长连接；命令与连接状态以 PostgreSQL 为恢复源，因此 Gateway/Worker 重启不会丢失已提交命令。
+Runman Gateway 默认在容器内监听 `RUNMAN_GATEWAY_ADDRESS=:9090`，宿主机默认映射为 `RUNMAN_PORT=9091`，避免与 Web 入口的宿主机 `9090` 冲突。生产必须同时配置 `RUNMAN_TLS_CERT_FILE` 与 `RUNMAN_TLS_KEY_FILE`；`RUNMAN_INSECURE=true` 只允许非生产本地/CI 环境。先创建 `provider_type=runman` 的 Provider 与 Node；该 Node 的 `provider_node_id` 必须留空（自动回退平台 Node UUID）或显式设置为同一个平台 Node UUID。随后执行 `/app/issue-agent-token --node-id <uuid>`；token 只显示一次，数据库只保存摘要。Agent 使用 `authorization: Bearer <token>` 主动连接 Gateway。负载均衡必须保持长连接；命令与连接状态以 PostgreSQL 为恢复源，因此 Gateway/Worker 重启不会丢失已提交命令。
 
 Worker 每秒运行恢复扫描：2 分钟无 heartbeat 的 Operation 会按 retry budget 重排队；90 秒无 Agent heartbeat 的 Runman Node 标记 offline；终态 Operation 遗留的过期 Reservation 会原子释放；Instance observed state 会从 Provider 周期刷新。Redis 重启期间 Outbox 保持 pending，恢复后继续发布；Worker 崩溃遗留的 Redis Stream pending entry 会由其他 consumer 接管。生产告警应设置在这些恢复阈值之前，避免把自动恢复当作正常稳态。
 

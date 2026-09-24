@@ -43,10 +43,10 @@ echo "$GITHUB_TOKEN" | docker login ghcr.io -u USERNAME --password-stdin
 
 访问地址：
 
-- 用户端：`http://localhost:8080/`
-- 管理端：`http://localhost:8080/admin/`
-- Liveness：`http://localhost:8080/health/live`
-- Readiness：`http://localhost:8080/health/ready`
+- 用户端：`http://localhost:9090/`
+- 管理端：`http://localhost:9090/admin/`
+- Liveness：`http://localhost:9090/health/live`
+- Readiness：`http://localhost:9090/health/ready`
 
 默认镜像模板允许内网 HTTP，适用于无公网 IP 的设备。请把 `USER_WEB_ORIGIN` 和 `ADMIN_WEB_ORIGIN` 设置为浏览器实际访问的完整 Origin（含协议和非默认端口）。应用本身不终止公网 TLS：使用 Nginx、Caddy 等外部 HTTPS 反代或 Cloudflare Tunnel 时，应改为：
 
@@ -57,7 +57,7 @@ USER_WEB_ORIGIN=https://portal.example.com
 ADMIN_WEB_ORIGIN=https://portal.example.com
 ```
 
-此时外部入口使用 HTTPS，Tunnel/反代到本机 `http://localhost:8080` 即可。
+此时外部入口使用 HTTPS，Tunnel/反代到本机 `http://localhost:9090` 即可。
 
 ## 从源码启动
 

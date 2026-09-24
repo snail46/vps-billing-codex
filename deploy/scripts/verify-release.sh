@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 
 COMPOSE_FILE=${COMPOSE_FILE:-deploy/docker-compose.yml}
-APP_URL=${APP_URL:-http://localhost:8080}
+APP_URL=${APP_URL:-http://localhost:9090}
 METRICS_TOKEN=${METRICS_TOKEN:?set METRICS_TOKEN}
 
 curl --fail --show-error "$APP_URL/health/live"
