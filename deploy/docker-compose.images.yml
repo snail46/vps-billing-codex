@@ -1,0 +1,114 @@
+name: vps-billing
+
+x-backend-image: &backend-image
+  image: ghcr.io/snail46/vps-billing-codex/backend:${VPS_BILLING_IMAGE_TAG:-v1}
+  pull_policy: always
+
+x-backend-environment: &backend-environment
+  APP_ENV: ${APP_ENV:-production}
+  SERVER_ADDRESS: ":8080"
+  DATABASE_URL: "postgres://${POSTGRES_USER:-vps_billing}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-vps_billing}?sslmode=disable"
+  REDIS_URL: "redis://redis:6379/0"
+  USER_WEB_ORIGIN: ${USER_WEB_ORIGIN:?set USER_WEB_ORIGIN}
+  ADMIN_WEB_ORIGIN: ${ADMIN_WEB_ORIGIN:?set ADMIN_WEB_ORIGIN}
+  USER_SESSION_SECRET: ${USER_SESSION_SECRET:?set USER_SESSION_SECRET}
+  ADMIN_SESSION_SECRET: ${ADMIN_SESSION_SECRET:?set ADMIN_SESSION_SECRET}
+  USER_CSRF_SECRET: ${USER_CSRF_SECRET:?set USER_CSRF_SECRET}
+  ADMIN_CSRF_SECRET: ${ADMIN_CSRF_SECRET:?set ADMIN_CSRF_SECRET}
+  ADMIN_TOTP_ENCRYPTION_KEY: ${ADMIN_TOTP_ENCRYPTION_KEY:?set ADMIN_TOTP_ENCRYPTION_KEY}
+  FAKE_PAYMENT_WEBHOOK_SECRET: ${FAKE_PAYMENT_WEBHOOK_SECRET:?set FAKE_PAYMENT_WEBHOOK_SECRET}
+  METRICS_TOKEN: ${METRICS_TOKEN:?set METRICS_TOKEN}
+  FAKE_PAYMENT_ENABLED: ${FAKE_PAYMENT_ENABLED:-false}
+  SUBSCRIPTION_GRACE_PERIOD: ${SUBSCRIPTION_GRACE_PERIOD:-72h}
+  COOKIE_SECURE: ${COOKIE_SECURE:-true}
+  LOG_LEVEL: ${LOG_LEVEL:-info}
+  RUNMAN_GATEWAY_ADDRESS: ":9090"
+  RUNMAN_INSECURE: "false"
+  RUNMAN_TLS_CERT_FILE: /runman-tls/tls.crt
+  RUNMAN_TLS_KEY_FILE: /runman-tls/tls.key
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-vps_billing}
+      POSTGRES_USER: ${POSTGRES_USER:-vps_billing}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+    volumes: [postgres_data:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:8-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes: [redis_data:/data]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  migrate:
+    <<: *backend-image
+    entrypoint: ["/app/migrate"]
+    environment: *backend-environment
+    depends_on:
+      postgres: {condition: service_healthy}
+    restart: "no"
+
+  server:
+    <<: *backend-image
+    environment: *backend-environment
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+      redis: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/health/ready"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  worker:
+    <<: *backend-image
+    entrypoint: ["/app/worker"]
+    environment: *backend-environment
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+      redis: {condition: service_healthy}
+
+  runman-gateway:
+    <<: *backend-image
+    entrypoint: ["/app/runman-gateway"]
+    environment: *backend-environment
+    profiles: [runman]
+    volumes:
+      - ${RUNMAN_TLS_DIRECTORY:-./runman-tls}:/runman-tls:ro
+    ports: ["${RUNMAN_PORT:-9090}:9090"]
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+
+  user-web:
+    image: ghcr.io/snail46/vps-billing-codex/user-web:${VPS_BILLING_IMAGE_TAG:-v1}
+    pull_policy: always
+    depends_on:
+      server: {condition: service_healthy}
+
+  admin-web:
+    image: ghcr.io/snail46/vps-billing-codex/admin-web:${VPS_BILLING_IMAGE_TAG:-v1}
+    pull_policy: always
+    depends_on:
+      server: {condition: service_healthy}
+
+  reverse-proxy:
+    image: nginx:1.29-alpine
+    ports: ["${APP_PORT:-8080}:80"]
+    volumes:
+      - ./nginx/gateway.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on: [user-web, admin-web]
+
+volumes:
+  postgres_data:
+  redis_data:

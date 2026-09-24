@@ -1,0 +1,14 @@
+{
+  "name": "@vps-billing/i18n",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": "./src/index.tsx",
+  "dependencies": {
+    "i18next": "^26.4.2",
+    "react-i18next": "^17.0.15"
+  },
+  "peerDependencies": {
+    "react": "^19.1.1"
+  }
+}

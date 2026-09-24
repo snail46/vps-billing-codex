@@ -1,0 +1,699 @@
+openapi: 3.1.0
+info:
+  title: VPS Billing Platform API
+  version: 1.0.0
+  license: {name: Proprietary}
+servers:
+  - url: /api/v1
+security: [{userSession: []}]
+paths:
+  /health/live:
+    get:
+      summary: Check process liveness
+      security: []
+      operationId: healthLive
+      responses:
+        "200": {description: Alive}
+  /health/ready:
+    get:
+      summary: Check dependency readiness
+      security: []
+      operationId: healthReady
+      responses:
+        "200": {description: Ready}
+        "503": {description: Not ready}
+  /auth/register:
+    post:
+      summary: Register a user account
+      security: []
+      operationId: register
+      requestBody: {$ref: "#/components/requestBodies/UserRegistration"}
+      responses:
+        "201":
+          description: Registered
+          headers: {Set-Cookie: {$ref: "#/components/headers/SessionCookie"}}
+          content: {application/json: {schema: {$ref: "#/components/schemas/UserAuthResponse"}}}
+        "409": {$ref: "#/components/responses/Conflict"}
+        "422": {$ref: "#/components/responses/ValidationFailure"}
+        "429": {$ref: "#/components/responses/RateLimited"}
+  /auth/login:
+    post:
+      summary: Log in a user
+      security: []
+      operationId: login
+      requestBody: {$ref: "#/components/requestBodies/Login"}
+      responses:
+        "200":
+          description: Logged in
+          headers: {Set-Cookie: {$ref: "#/components/headers/SessionCookie"}}
+          content: {application/json: {schema: {$ref: "#/components/schemas/UserAuthResponse"}}}
+        "401": {$ref: "#/components/responses/Unauthenticated"}
+        "429": {$ref: "#/components/responses/RateLimited"}
+  /auth/me:
+    get:
+      summary: Get the current user
+      operationId: getCurrentUser
+      responses:
+        "200":
+          description: Current user
+          content: {application/json: {schema: {$ref: "#/components/schemas/UserAuthResponse"}}}
+        "401": {$ref: "#/components/responses/Unauthenticated"}
+  /auth/logout:
+    post:
+      summary: Log out the current user
+      operationId: logoutUser
+      parameters: [{$ref: "#/components/parameters/CSRFToken"}]
+      responses:
+        "200": {description: Logged out}
+        "401": {$ref: "#/components/responses/Unauthenticated"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+  /admin/auth/login:
+    post:
+      summary: Log in an administrator
+      security: []
+      operationId: loginAdmin
+      requestBody: {$ref: "#/components/requestBodies/Login"}
+      responses:
+        "200":
+          description: Logged in
+          headers: {Set-Cookie: {$ref: "#/components/headers/SessionCookie"}}
+          content: {application/json: {schema: {$ref: "#/components/schemas/AdminAuthResponse"}}}
+        "401": {$ref: "#/components/responses/Unauthenticated"}
+        "429": {$ref: "#/components/responses/RateLimited"}
+  /admin/auth/me:
+    get:
+      summary: Get the current administrator
+      security: [{adminSession: []}]
+      operationId: getCurrentAdmin
+      responses:
+        "200": {description: Current administrator, content: {application/json: {schema: {$ref: "#/components/schemas/AdminAuthResponse"}}}}
+        "401": {$ref: "#/components/responses/Unauthenticated"}
+  /admin/auth/logout:
+    post:
+      summary: Log out the current administrator
+      security: [{adminSession: []}]
+      operationId: logoutAdmin
+      parameters: [{$ref: "#/components/parameters/CSRFToken"}]
+      responses:
+        "200": {description: Logged out}
+        "401": {$ref: "#/components/responses/Unauthenticated"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+  /admin/auth/totp/setup:
+    post:
+      summary: Start administrator TOTP enrollment
+      security: [{adminSession: []}]
+      operationId: setupAdminTOTP
+      parameters: [{$ref: "#/components/parameters/CSRFToken"}]
+      responses:
+        "200": {description: Encrypted TOTP enrollment secret created}
+        "401": {$ref: "#/components/responses/Unauthenticated"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+  /admin/auth/totp/enable:
+    post:
+      summary: Verify and enable administrator TOTP
+      security: [{adminSession: []}]
+      operationId: enableAdminTOTP
+      parameters: [{$ref: "#/components/parameters/CSRFToken"}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code]
+              additionalProperties: false
+              properties: {code: {type: string, pattern: "^[0-9]{6}$"}}
+      responses:
+        "200": {description: TOTP enabled}
+        "401": {$ref: "#/components/responses/Unauthenticated"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+  /products:
+    get:
+      summary: List products
+      security: []
+      operationId: listProducts
+      responses:
+        "200": {description: Products and active plans}
+  /orders:
+    get:
+      summary: List user orders
+      operationId: listOrders
+      responses:
+        "200": {description: Orders}
+        "401": {$ref: "#/components/responses/Unauthenticated"}
+    post:
+      summary: Create an order
+      operationId: createOrder
+      parameters:
+        - $ref: "#/components/parameters/CSRFToken"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [plan_id, quantity]
+              properties:
+                plan_id: {type: string, format: uuid}
+                quantity: {type: integer, minimum: 1}
+      responses:
+        "201": {description: "Order, invoice, and pending payment created"}
+        "401": {$ref: "#/components/responses/Unauthenticated"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "422": {$ref: "#/components/responses/ValidationFailure"}
+  /invoices:
+    get:
+      summary: List user invoices
+      operationId: listInvoices
+      responses:
+        "200": {description: Invoices}
+        "401": {$ref: "#/components/responses/Unauthenticated"}
+  /wallet:
+    get:
+      summary: Get or initialize a zero-balance wallet
+      operationId: getWallet
+      parameters:
+        - name: currency
+          in: query
+          schema: {type: string, minLength: 3, maxLength: 3, default: USD}
+      responses:
+        "200": {description: Wallet}
+        "401": {$ref: "#/components/responses/Unauthenticated"}
+        "422": {$ref: "#/components/responses/ValidationFailure"}
+  /webhooks/payments/fake:
+    post:
+      summary: Receive a signed fake payment callback
+      operationId: fakePaymentWebhook
+      security: []
+      parameters:
+        - name: X-Fake-Signature
+          in: header
+          required: true
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/PaymentWebhook"}
+      responses:
+        "200": {description: Processed or already processed idempotently}
+        "401": {$ref: "#/components/responses/Unauthenticated"}
+        "404": {description: Payment not found}
+        "409": {description: Payment state conflict}
+        "422": {$ref: "#/components/responses/ValidationFailure"}
+  /subscriptions:
+    get:
+      summary: List user subscriptions
+      operationId: listSubscriptions
+      responses:
+        "200":
+          description: Subscriptions
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data, request_id]
+                properties:
+                  success: {type: boolean, const: true}
+                  request_id: {type: string}
+                  data:
+                    type: object
+                    required: [items]
+                    properties:
+                      items: {type: array, items: {$ref: "#/components/schemas/Subscription"}}
+        "401": {$ref: "#/components/responses/Unauthenticated"}
+  /subscriptions/{id}/renewals:
+    post:
+      summary: Create a renewal order and pending payment
+      operationId: renewSubscription
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/CSRFToken"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "201": {description: "Renewal order, invoice, and pending payment created"}
+        "401": {$ref: "#/components/responses/Unauthenticated"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {description: Subscription not found}
+        "409": {$ref: "#/components/responses/Conflict"}
+        "422": {$ref: "#/components/responses/ValidationFailure"}
+  /subscriptions/{id}/cancel-at-period-end:
+    put:
+      summary: Schedule or remove end-of-period cancellation
+      operationId: setSubscriptionCancelAtPeriodEnd
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/CSRFToken"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [cancel]
+              additionalProperties: false
+              properties: {cancel: {type: boolean}}
+      responses:
+        "200": {description: Subscription cancellation preference updated}
+        "401": {$ref: "#/components/responses/Unauthenticated"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {description: Subscription not found}
+        "409": {$ref: "#/components/responses/Conflict"}
+  /instances:
+    get:
+      summary: List user instances
+      operationId: listInstances
+      responses:
+        "200": {description: Instances}
+  /instances/{id}:
+    get:
+      summary: Get an instance
+      operationId: getInstance
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200": {description: Instance}
+        "404": {description: Not found}
+  /instances/{id}/networks:
+    get:
+      summary: List instance network addresses owned by the current user
+      operationId: listInstanceNetworks
+      parameters: [{$ref: "#/components/parameters/Id"}]
+      responses:
+        "200": {description: Networks}
+        "404": {$ref: "#/components/responses/NotFound"}
+  /instances/{id}/traffic:
+    get:
+      summary: List recent traffic samples for an owned instance
+      operationId: listInstanceTraffic
+      parameters: [{$ref: "#/components/parameters/Id"}]
+      responses:
+        "200": {description: Traffic samples}
+        "404": {$ref: "#/components/responses/NotFound"}
+  /instances/{id}/start:
+    post:
+      summary: Queue an instance start
+      operationId: startInstance
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/CSRFToken"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "202": {description: Accepted, content: {application/json: {schema: {$ref: "#/components/schemas/OperationAccepted"}}}}
+        "409": {$ref: "#/components/responses/Conflict"}
+  /instances/{id}/stop:
+    post:
+      summary: Queue an instance stop
+      operationId: stopInstance
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/CSRFToken"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "202": {description: Accepted, content: {application/json: {schema: {$ref: "#/components/schemas/OperationAccepted"}}}}
+        "409": {$ref: "#/components/responses/Conflict"}
+  /instances/{id}/restart:
+    post:
+      summary: Queue an instance restart
+      operationId: restartInstance
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/CSRFToken"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "202":
+          description: Accepted
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/OperationAccepted"}
+        "409": {description: Conflict}
+  /instances/{id}/reinstall:
+    post:
+      summary: Queue an instance reinstall
+      operationId: reinstallInstance
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/CSRFToken"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [image_id]
+              properties:
+                image_id: {type: string}
+      responses:
+        "202":
+          description: Accepted
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/OperationAccepted"}
+  /notifications:
+    get:
+      summary: List current user notifications
+      operationId: listNotifications
+      responses:
+        "200": {description: Notifications}
+  /notifications/{id}/read:
+    put:
+      summary: Mark an owned notification read
+      operationId: markNotificationRead
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/CSRFToken"
+      responses:
+        "200": {description: Marked read}
+        "404": {$ref: "#/components/responses/NotFound"}
+  /tickets:
+    get:
+      summary: List current user support tickets
+      operationId: listTickets
+      responses:
+        "200": {description: Tickets}
+    post:
+      summary: Create a support ticket with its first message
+      operationId: createTicket
+      parameters: [{$ref: "#/components/parameters/CSRFToken"}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [subject, priority, message]
+              additionalProperties: false
+              properties:
+                subject: {type: string, minLength: 3, maxLength: 255}
+                priority: {type: string, enum: [low, normal, high]}
+                message: {type: string, minLength: 1, maxLength: 10000}
+      responses:
+        "201": {description: Ticket created}
+        "422": {$ref: "#/components/responses/ValidationFailure"}
+  /tickets/{id}:
+    get:
+      summary: Get an owned support ticket and messages
+      operationId: getTicket
+      parameters: [{$ref: "#/components/parameters/Id"}]
+      responses:
+        "200": {description: Ticket detail}
+        "404": {$ref: "#/components/responses/NotFound"}
+  /tickets/{id}/messages:
+    post:
+      summary: Add a user message to an owned support ticket
+      operationId: addTicketMessage
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/CSRFToken"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [message]
+              additionalProperties: false
+              properties: {message: {type: string, minLength: 1, maxLength: 10000}}
+      responses:
+        "201": {description: Message created}
+        "404": {$ref: "#/components/responses/NotFound"}
+  /operations/{id}:
+    get:
+      summary: Get an operation
+      operationId: getOperation
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: Operation
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/OperationResponse"}
+        "401": {$ref: "#/components/responses/Unauthenticated"}
+        "404": {$ref: "#/components/responses/NotFound"}
+  /events:
+    get:
+      summary: Stream authenticated events
+      operationId: streamEvents
+      responses:
+        "200":
+          description: SSE
+          content:
+            text/event-stream:
+              schema: {type: string}
+  /admin/dashboard:
+    get:
+      summary: Get anomaly-first administrator dashboard
+      security: [{adminSession: []}]
+      responses: {"200": {description: Health, alerts, capacity, providers, and nodes}, "403": {description: Permission denied}}
+  /admin/users:
+    get: {summary: List users, security: [{adminSession: []}], responses: {"200": {description: Users}, "403": {description: Permission denied}}}
+  /admin/users/{id}/status:
+    patch: {summary: Suspend or activate a user with audit, security: [{adminSession: []}], parameters: [{$ref: "#/components/parameters/ResourceID"}], responses: {"200": {description: Updated user}, "403": {description: Permission denied}}}
+  /admin/products:
+    get: {summary: List products and plans, security: [{adminSession: []}], responses: {"200": {description: Products}}}
+  /admin/orders:
+    get: {summary: List orders, security: [{adminSession: []}], responses: {"200": {description: Orders}}}
+  /admin/payments:
+    get: {summary: List payments, security: [{adminSession: []}], responses: {"200": {description: Payments}}}
+  /admin/ledger:
+    get: {summary: List immutable ledger transactions, security: [{adminSession: []}], responses: {"200": {description: Ledger transactions}}}
+  /admin/ledger/adjustments:
+    post: {summary: Create an audited balanced wallet adjustment, security: [{adminSession: []}], responses: {"201": {description: Wallet projection and transaction ID}, "409": {description: Insufficient balance}}}
+  /admin/subscriptions:
+    get: {summary: List subscriptions, security: [{adminSession: []}], responses: {"200": {description: Subscriptions}}}
+  /admin/instances:
+    get: {summary: List instances, security: [{adminSession: []}], responses: {"200": {description: Instances}}}
+  /admin/instances/{id}:
+    get: {summary: Get instance operations and diagnostics subject to RBAC, security: [{adminSession: []}], parameters: [{$ref: "#/components/parameters/ResourceID"}], responses: {"200": {description: Instance detail}, "404": {description: Not found}}}
+  /admin/nodes:
+    get: {summary: List nodes and capacity, security: [{adminSession: []}], responses: {"200": {description: Nodes}}}
+  /admin/providers:
+    get: {summary: List providers without credentials, security: [{adminSession: []}], responses: {"200": {description: Providers}}}
+  /admin/operations:
+    get: {summary: List operations, security: [{adminSession: []}], responses: {"200": {description: Operations}}}
+  /admin/operations/{id}:
+    get: {summary: Get workflow steps and RBAC-filtered raw diagnostics, security: [{adminSession: []}], parameters: [{$ref: "#/components/parameters/ResourceID"}], responses: {"200": {description: Operation detail}, "404": {description: Not found}}}
+  /admin/tickets:
+    get: {summary: List support tickets, security: [{adminSession: []}], responses: {"200": {description: Tickets}}}
+  /admin/tickets/{id}/messages:
+    post: {summary: Add an audited administrator reply, security: [{adminSession: []}], parameters: [{$ref: "#/components/parameters/ResourceID"}], responses: {"201": {description: Ticket message}, "409": {description: Ticket finalized}}}
+  /admin/tickets/{id}/status:
+    patch: {summary: Change ticket state with audit, security: [{adminSession: []}], parameters: [{$ref: "#/components/parameters/ResourceID"}], responses: {"200": {description: Updated ticket}}}
+  /admin/audit:
+    get: {summary: List audit events, security: [{adminSession: []}], responses: {"200": {description: Audit events}}}
+  /admin/admins:
+    get: {summary: List administrators and roles, security: [{adminSession: []}], responses: {"200": {description: Administrators}}}
+  /admin/admins/{id}/roles:
+    put: {summary: Replace administrator roles with audit, security: [{adminSession: []}], parameters: [{$ref: "#/components/parameters/ResourceID"}], responses: {"200": {description: Updated administrator roles}}}
+  /admin/roles:
+    get: {summary: List roles and permissions, security: [{adminSession: []}], responses: {"200": {description: Roles}}}
+  /admin/settings:
+    get: {summary: List settings with secret values masked, security: [{adminSession: []}], responses: {"200": {description: Settings}}}
+  /admin/settings/{key}:
+    put:
+      summary: Upsert an audited setting
+      security: [{adminSession: []}]
+      parameters: [{name: key, in: path, required: true, schema: {type: string}}]
+      responses: {"200": {description: Masked setting}}
+components:
+  securitySchemes:
+    userSession: {type: apiKey, in: cookie, name: vps_user_session}
+    adminSession: {type: apiKey, in: cookie, name: vps_admin_session}
+  headers:
+    SessionCookie:
+      description: Secure, HttpOnly, SameSite=Strict session cookie (Secure is disabled only in local development).
+      schema: {type: string}
+  parameters:
+    ResourceID:
+      name: id
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+    Id:
+      name: id
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+    CSRFToken:
+      name: X-CSRF-Token
+      in: header
+      required: true
+      schema: {type: string}
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema: {type: string, minLength: 8, maxLength: 255}
+  requestBodies:
+    Login:
+      required: true
+      content:
+        application/json:
+          schema: {$ref: "#/components/schemas/LoginRequest"}
+    UserRegistration:
+      required: true
+      content:
+        application/json:
+          schema: {$ref: "#/components/schemas/UserRegistrationRequest"}
+  responses:
+    Unauthenticated: {description: Authentication required, content: {application/json: {schema: {$ref: "#/components/schemas/ErrorResponse"}}}}
+    Forbidden: {description: Permission or CSRF validation failed, content: {application/json: {schema: {$ref: "#/components/schemas/ErrorResponse"}}}}
+    Conflict: {description: Resource conflict, content: {application/json: {schema: {$ref: "#/components/schemas/ErrorResponse"}}}}
+    ValidationFailure: {description: Validation failure, content: {application/json: {schema: {$ref: "#/components/schemas/ErrorResponse"}}}}
+    RateLimited: {description: Rate limited, content: {application/json: {schema: {$ref: "#/components/schemas/ErrorResponse"}}}}
+    NotFound: {description: Resource not found, content: {application/json: {schema: {$ref: "#/components/schemas/ErrorResponse"}}}}
+  schemas:
+    LoginRequest:
+      type: object
+      required: [email, password]
+      additionalProperties: false
+      properties:
+        email: {type: string, format: email, maxLength: 320}
+        password: {type: string, minLength: 12, maxLength: 128}
+        totp_code: {type: string, pattern: "^[0-9]{6}$"}
+    UserRegistrationRequest:
+      allOf:
+        - {$ref: "#/components/schemas/LoginRequest"}
+        - type: object
+          properties:
+            locale: {type: string, enum: [zh-CN, en-US], default: zh-CN}
+            timezone: {type: string, default: UTC}
+    User:
+      type: object
+      required: [id, email, status, locale, timezone]
+      properties:
+        id: {type: string, format: uuid}
+        email: {type: string, format: email}
+        status: {type: string, enum: [active, suspended, disabled]}
+        locale: {type: string, enum: [zh-CN, en-US]}
+        timezone: {type: string}
+    Admin:
+      type: object
+      required: [id, email, status, display_name, two_factor_enabled, permissions]
+      properties:
+        id: {type: string, format: uuid}
+        email: {type: string, format: email}
+        status: {type: string, enum: [active, suspended, disabled]}
+        display_name: {type: string}
+        two_factor_enabled: {type: boolean}
+        permissions: {type: array, items: {type: string}}
+    UserAuthResponse:
+      $ref: "#/components/schemas/AuthResponse"
+    AdminAuthResponse:
+      $ref: "#/components/schemas/AuthResponse"
+    AuthResponse:
+      type: object
+      required: [success, data, request_id]
+      properties:
+        success: {type: boolean, const: true}
+        request_id: {type: string}
+        data:
+          type: object
+          required: [principal, csrf_token]
+          properties:
+            principal: {oneOf: [{$ref: "#/components/schemas/User"}, {$ref: "#/components/schemas/Admin"}]}
+            csrf_token: {type: string}
+    ErrorResponse:
+      type: object
+      required: [success, error, request_id]
+      properties:
+        success: {type: boolean, const: false}
+        request_id: {type: string}
+        error:
+          type: object
+          required: [code, message_key]
+          properties:
+            code: {type: string}
+            message_key: {type: string}
+            details: {type: object, additionalProperties: true}
+    PaymentWebhook:
+      type: object
+      additionalProperties: false
+      required: [event_id, payment_id, external_payment_id, status, amount_minor, currency]
+      properties:
+        event_id: {type: string, minLength: 1, maxLength: 255}
+        payment_id: {type: string, format: uuid}
+        external_payment_id: {type: string, minLength: 1, maxLength: 255}
+        status: {type: string, enum: [succeeded]}
+        amount_minor: {type: integer, format: int64, minimum: 0}
+        currency: {type: string, minLength: 3, maxLength: 3}
+    Subscription:
+      type: object
+      required: [id, plan_id, status, billing_cycle, price_minor, currency, cancel_at_period_end, version]
+      properties:
+        id: {type: string, format: uuid}
+        plan_id: {type: string, format: uuid}
+        plan_slug: {type: string}
+        plan_name_i18n: {type: object, additionalProperties: {type: string}}
+        status: {type: string, enum: [pending, active, past_due, suspended, cancelled, expired, terminated]}
+        billing_cycle: {type: string, enum: [monthly, quarterly, yearly]}
+        price_minor: {type: integer, format: int64}
+        currency: {type: string, minLength: 3, maxLength: 3}
+        started_at: {type: [string, "null"], format: date-time}
+        current_period_start: {type: [string, "null"], format: date-time}
+        current_period_end: {type: [string, "null"], format: date-time}
+        next_due_at: {type: [string, "null"], format: date-time}
+        grace_until: {type: [string, "null"], format: date-time}
+        cancel_at_period_end: {type: boolean}
+        ended_at: {type: [string, "null"], format: date-time}
+        version: {type: integer, format: int64}
+    OperationAccepted:
+      type: object
+      required: [success, data, request_id]
+      properties:
+        success: {type: boolean, const: true}
+        request_id: {type: string}
+        data:
+          type: object
+          required: [operation_id, status]
+          properties:
+            operation_id: {type: string, format: uuid}
+            status: {type: string, enum: [queued]}
+    OperationResponse:
+      type: object
+      required: [success, data, request_id]
+      properties:
+        success: {type: boolean, const: true}
+        request_id: {type: string}
+        data:
+          type: object
+          required: [id, type, resource_type, resource_id, status, progress, retryable, retry_count, max_retries, trace_id, created_at, updated_at, steps]
+          properties:
+            id: {type: string, format: uuid}
+            type: {type: string}
+            resource_type: {type: string}
+            resource_id: {type: string, format: uuid}
+            status:
+              type: string
+              enum: [queued, running, waiting_provider, waiting_resource, verifying, retrying, succeeded, failed, cancelled]
+            phase: {type: [string, "null"]}
+            progress: {type: integer, minimum: 0, maximum: 100}
+            message_key: {type: [string, "null"]}
+            retryable: {type: boolean}
+            retry_count: {type: integer, minimum: 0}
+            max_retries: {type: integer, minimum: 0}
+            error_code: {type: [string, "null"]}
+            trace_id: {type: string}
+            started_at: {type: [string, "null"], format: date-time}
+            finished_at: {type: [string, "null"], format: date-time}
+            created_at: {type: string, format: date-time}
+            updated_at: {type: string, format: date-time}
+            steps:
+              type: array
+              items: {$ref: "#/components/schemas/OperationStep"}
+    OperationStep:
+      type: object
+      required: [key, order, status, progress, attempt]
+      properties:
+        key: {type: string}
+        order: {type: integer}
+        status: {type: string, enum: [pending, running, waiting, succeeded, failed, skipped]}
+        progress: {type: integer, minimum: 0, maximum: 100}
+        attempt: {type: integer, minimum: 0}
+        error_code: {type: [string, "null"]}
+        output: {type: object, additionalProperties: true}
+        started_at: {type: [string, "null"], format: date-time}
+        finished_at: {type: [string, "null"], format: date-time}

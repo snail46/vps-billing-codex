@@ -1,0 +1,278 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main, v1-release]
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: vps_billing_test
+          POSTGRES_USER: vps_billing
+          POSTGRES_PASSWORD: test-only
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U vps_billing -d vps_billing_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:8-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgres://vps_billing:test-only@localhost:5432/vps_billing_test?sslmode=disable
+      TEST_REDIS_URL: redis://localhost:6379/0
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - name: Install sqlc
+        run: go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1
+      - name: Verify generated queries
+        run: sqlc generate && git diff --exit-code
+      - name: Verify formatting
+        run: test -z "$(gofmt -l .)"
+      - name: Verify release scripts
+        run: bash -n ../deploy/scripts/*.sh
+      - run: go vet ./...
+      - name: Test with race detector
+        shell: bash
+        run: |
+          set +e
+          go test -race -v ./... 2>&1 | tee /tmp/backend-tests.log
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            diagnostic=$(grep -E -- '--- FAIL:|\.go:[0-9]+:|^FAIL' /tmp/backend-tests.log | tail -n 120 | tr '\n' '|' | sed 's/%/%25/g; s/\r/%0D/g; s/\n/%0A/g')
+            echo "::error title=Backend tests failed::$diagnostic"
+          fi
+          exit "$status"
+      - run: go build ./cmd/server ./cmd/worker ./cmd/migrate ./cmd/bootstrap-admin ./cmd/runman-gateway ./cmd/issue-agent-token
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm audit --audit-level=moderate
+      - run: npm run lint
+      - run: npm run test
+      - run: npm run typecheck
+      - run: npm run build
+
+  compose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate prebuilt-image deployment manifest
+        run: docker compose --env-file deploy/.env.images.example -f deploy/docker-compose.images.yml config --quiet
+      - name: Start foundation stack
+        run: docker compose -f deploy/docker-compose.yml up --build --detach --wait
+      - name: Verify gateway health
+        run: curl --fail --show-error http://localhost:8080/health/ready
+      - name: Verify release security and metrics
+        run: |
+          set -Eeuo pipefail
+          headers=$(curl --fail --silent --show-error --dump-header - --output /dev/null http://localhost:8080/health/live)
+          echo "$headers" | grep -qi '^x-content-type-options: nosniff'
+          echo "$headers" | grep -qi '^x-frame-options: DENY'
+          docker compose -f deploy/docker-compose.yml exec -T server \
+            wget -qO- --header='Authorization: Bearer development-metrics-token-change-before-production' http://localhost:8080/metrics |
+            grep -q 'vps_billing_metrics_collection_success 1'
+      - name: Verify identity commerce and subscription flows
+        run: |
+          set -Eeuo pipefail
+          stage="seed commerce fixtures"
+          trap 'echo "::error title=Compose flow failed::stage=${stage}; line=${LINENO}; command=${BASH_COMMAND}"' ERR
+          docker compose -f deploy/docker-compose.yml exec -T postgres \
+            psql -U vps_billing -d vps_billing -v ON_ERROR_STOP=1 -c \
+            "INSERT INTO node_groups(id,name,region,status) VALUES ('10000000-0000-7000-8000-000000000010','ci-group','ci-region','active'); INSERT INTO providers(id,name,provider_type,status,capabilities) VALUES ('10000000-0000-7000-8000-000000000011','ci-mock','mock','active','{\"create_instance\":true}'); INSERT INTO nodes(id,provider_id,node_group_id,provider_node_id,name,region,status,cpu_total,memory_total_mb,disk_total_gb,ipv4_total,capabilities,last_seen_at) VALUES ('10000000-0000-7000-8000-000000000012','10000000-0000-7000-8000-000000000011','10000000-0000-7000-8000-000000000010','ci-node-provider-id','ci-node','ci-region','online',16,32768,1000,16,'{\"virtualization\":\"kvm\"}',now()); INSERT INTO products(id,slug,name_i18n,status) VALUES ('10000000-0000-7000-8000-000000000001','ci-product','{\"en-US\":\"CI Product\",\"zh-CN\":\"CI 产品\"}','active'); INSERT INTO plans(id,product_id,node_group_id,slug,name_i18n,status,cpu_cores,memory_mb,disk_gb,ipv4_count,virtualization,billing_cycle,price_minor,currency,default_image_id) VALUES ('10000000-0000-7000-8000-000000000002','10000000-0000-7000-8000-000000000001','10000000-0000-7000-8000-000000000010','ci-plan','{\"en-US\":\"CI Plan\",\"zh-CN\":\"CI 套餐\"}','active',1,1024,20,1,'kvm','monthly',1299,'USD','ubuntu-24.04');"
+          stage="register user"
+          response=$(curl --fail-with-body --show-error --cookie-jar /tmp/user.cookies \
+            -H 'Content-Type: application/json' \
+            -d '{"email":"ci-user@example.com","password":"ci-password-is-long-enough","locale":"en-US","timezone":"UTC"}' \
+            http://localhost:8080/api/v1/auth/register)
+          csrf=$(echo "$response" | jq -er '.data.csrf_token')
+          user_id=$(echo "$response" | jq -er '.data.principal.id')
+          stage="verify user session"
+          curl --fail-with-body --show-error --cookie /tmp/user.cookies http://localhost:8080/api/v1/auth/me
+          stage="create order"
+          order=$(curl --fail-with-body --show-error --cookie /tmp/user.cookies \
+            -H 'Content-Type: application/json' -H "X-CSRF-Token: $csrf" -H 'Idempotency-Key: ci-order-idempotency-1' \
+            -d '{"plan_id":"10000000-0000-7000-8000-000000000002","quantity":1}' \
+            http://localhost:8080/api/v1/orders)
+          payment_id=$(echo "$order" | jq -er '.data.payment_id')
+          order_id=$(echo "$order" | jq -er '.data.id')
+          payload=$(jq -cn --arg payment_id "$payment_id" '{event_id:"ci-payment-event-1",payment_id:$payment_id,external_payment_id:"ci-external-payment-1",status:"succeeded",amount_minor:1299,currency:"USD"}')
+          signature=$(printf '%s' "$payload" | openssl dgst -sha256 -hmac 'development-fake-payment-secret-change-before-production' | awk '{print $2}')
+          stage="deliver payment webhook 100 times"
+          for attempt in $(seq 1 100); do
+            webhook_response=$(mktemp)
+            if ! curl --fail-with-body --silent --show-error --output "$webhook_response" -H 'Content-Type: application/json' -H "X-Fake-Signature: $signature" -d "$payload" http://localhost:8080/api/v1/webhooks/payments/fake; then
+              webhook_error=$(tr '\n' ' ' < "$webhook_response" | sed 's/%/%25/g; s/\r/%0D/g; s/\n/%0A/g')
+              echo "::error title=Payment webhook failed::attempt=${attempt}; body=${webhook_error}"
+              exit 1
+            fi
+            rm -f "$webhook_response"
+          done
+          stage="verify financial transaction counts"
+          ledger_count=$(docker compose -f deploy/docker-compose.yml exec -T postgres psql -U vps_billing -d vps_billing -tAc "SELECT count(*) FROM ledger_transactions WHERE type='payment_capture' AND reference_id='$payment_id'")
+          entry_count=$(docker compose -f deploy/docker-compose.yml exec -T postgres psql -U vps_billing -d vps_billing -tAc "SELECT count(*) FROM ledger_entries e JOIN ledger_transactions t ON t.id=e.transaction_id WHERE t.reference_id='$payment_id'")
+          outbox_count=$(docker compose -f deploy/docker-compose.yml exec -T postgres psql -U vps_billing -d vps_billing -tAc "SELECT count(*) FROM outbox_events WHERE event_type='payment.succeeded.v1' AND aggregate_id='$payment_id'")
+          test "$ledger_count" = "1"
+          test "$entry_count" = "2"
+          test "$outbox_count" = "1"
+          for wait_attempt in $(seq 1 20); do
+            stream_count=$(docker compose -f deploy/docker-compose.yml exec -T redis redis-cli XLEN domain-events)
+            test "$stream_count" -ge "1" && break
+            sleep 1
+          done
+          test "$stream_count" -ge "1"
+          stage="wait for automatic provisioning"
+          for wait_attempt in $(seq 1 30); do
+            provision_state=$(docker compose -f deploy/docker-compose.yml exec -T postgres psql -U vps_billing -d vps_billing -tAc "SELECT concat_ws('|',o.id,o.status,s.status,i.observed_state,ord.status,r.status) FROM operations o JOIN instances i ON i.id=o.resource_id JOIN subscriptions s ON s.id=i.subscription_id JOIN orders ord ON ord.id=s.source_order_id JOIN resource_reservations r ON r.operation_id=o.id WHERE ord.id='$order_id'")
+            echo "$provision_state" | grep -Eq '\|succeeded\|active\|running\|fulfilled\|committed$' && break
+            sleep 1
+          done
+          echo "$provision_state" | grep -Eq '\|succeeded\|active\|running\|fulfilled\|committed$'
+          operation_id=$(echo "$provision_state" | cut -d'|' -f1)
+          stage="verify recoverable operation endpoint"
+          curl --fail-with-body --show-error --cookie /tmp/user.cookies "http://localhost:8080/api/v1/operations/$operation_id" | jq -e '.data.status == "succeeded" and .data.progress == 100 and (.data.steps | length) == 11'
+          ready_notification_count=$(docker compose -f deploy/docker-compose.yml exec -T postgres psql -U vps_billing -d vps_billing -tAc "SELECT count(*) FROM notifications WHERE user_id='$user_id' AND type='instance_ready'")
+          test "$ready_notification_count" = "1"
+          stage="verify user portal instance resources"
+          instances=$(curl --fail-with-body --show-error --cookie /tmp/user.cookies http://localhost:8080/api/v1/instances)
+          instance_id=$(echo "$instances" | jq -er '.data.items | if length == 1 and .[0].observed_state == "running" then .[0].id else error("instance not running") end')
+          curl --fail-with-body --show-error --cookie /tmp/user.cookies "http://localhost:8080/api/v1/instances/$instance_id" | jq -e '.data.observed_state == "running"'
+          curl --fail-with-body --show-error --cookie /tmp/user.cookies "http://localhost:8080/api/v1/instances/$instance_id/networks" | jq -e '.data.items | type == "array"'
+          curl --fail-with-body --show-error --cookie /tmp/user.cookies "http://localhost:8080/api/v1/instances/$instance_id/traffic" | jq -e '.data.items | type == "array"'
+          curl --fail-with-body --show-error --cookie /tmp/user.cookies http://localhost:8080/api/v1/notifications | jq -e '.data.items | length == 1'
+          stage="create and reply to support ticket"
+          ticket=$(curl --fail-with-body --show-error --cookie /tmp/user.cookies -H 'Content-Type: application/json' -H "X-CSRF-Token: $csrf" -d '{"subject":"CI portal issue","priority":"normal","message":"Initial details"}' http://localhost:8080/api/v1/tickets)
+          ticket_id=$(echo "$ticket" | jq -er '.data.id')
+          curl --fail-with-body --show-error --cookie /tmp/user.cookies "http://localhost:8080/api/v1/tickets/$ticket_id" | jq -e '.data.messages | length == 1'
+          curl --fail-with-body --show-error --cookie /tmp/user.cookies -H 'Content-Type: application/json' -H "X-CSRF-Token: $csrf" -d '{"message":"Additional details"}' "http://localhost:8080/api/v1/tickets/$ticket_id/messages" | jq -e '.data.sender_type == "user"'
+          stage="restart instance through recoverable operation"
+          restart=$(curl --fail-with-body --show-error --cookie /tmp/user.cookies -H 'Content-Type: application/json' -H "X-CSRF-Token: $csrf" -H 'Idempotency-Key: ci-instance-restart-1' -d '{}' "http://localhost:8080/api/v1/instances/$instance_id/restart")
+          restart_operation_id=$(echo "$restart" | jq -er '.data.operation_id')
+          for wait_attempt in $(seq 1 20); do
+            restart_status=$(curl --fail-with-body --silent --show-error --cookie /tmp/user.cookies "http://localhost:8080/api/v1/operations/$restart_operation_id" | jq -r '.data.status')
+            test "$restart_status" = "succeeded" && break
+            sleep 1
+          done
+          test "$restart_status" = "succeeded"
+          stage="seed active subscription"
+          docker compose -f deploy/docker-compose.yml exec -T postgres \
+            psql -U vps_billing -d vps_billing -v ON_ERROR_STOP=1 -c \
+            "INSERT INTO subscriptions(id,user_id,plan_id,status,billing_cycle,price_minor,currency,started_at,current_period_start,current_period_end,next_due_at) VALUES ('10000000-0000-7000-8000-000000000003','$user_id','10000000-0000-7000-8000-000000000002','active','monthly',1299,'USD',now(),now(),now()+interval '1 month',now()+interval '1 month');"
+          stage="create renewal order"
+          renewal_order=$(curl --fail-with-body --show-error --cookie /tmp/user.cookies \
+            -H 'Content-Type: application/json' -H "X-CSRF-Token: $csrf" -H 'Idempotency-Key: ci-renewal-idempotency-1' \
+            -d '{}' http://localhost:8080/api/v1/subscriptions/10000000-0000-7000-8000-000000000003/renewals)
+          renewal_payment_id=$(echo "$renewal_order" | jq -er '.data.payment_id')
+          renewal_payload=$(jq -cn --arg payment_id "$renewal_payment_id" '{event_id:"ci-renewal-event-1",payment_id:$payment_id,external_payment_id:"ci-renewal-external-1",status:"succeeded",amount_minor:1299,currency:"USD"}')
+          renewal_signature=$(printf '%s' "$renewal_payload" | openssl dgst -sha256 -hmac 'development-fake-payment-secret-change-before-production' | awk '{print $2}')
+          stage="deliver duplicate renewal callbacks"
+          for attempt in $(seq 1 100); do
+            curl --fail-with-body --silent --show-error -H 'Content-Type: application/json' -H "X-Fake-Signature: $renewal_signature" -d "$renewal_payload" http://localhost:8080/api/v1/webhooks/payments/fake > /dev/null
+          done
+          renewal_ledger_count=$(docker compose -f deploy/docker-compose.yml exec -T postgres psql -U vps_billing -d vps_billing -tAc "SELECT count(*) FROM ledger_transactions WHERE type='payment_capture' AND reference_id='$renewal_payment_id'")
+          renewal_event_count=$(docker compose -f deploy/docker-compose.yml exec -T postgres psql -U vps_billing -d vps_billing -tAc "SELECT count(*) FROM outbox_events WHERE event_type='subscription.renewed.v1' AND aggregate_id='10000000-0000-7000-8000-000000000003'")
+          subscription_version=$(docker compose -f deploy/docker-compose.yml exec -T postgres psql -U vps_billing -d vps_billing -tAc "SELECT version FROM subscriptions WHERE id='10000000-0000-7000-8000-000000000003' AND status='active'")
+          test "$renewal_ledger_count" = "1"
+          test "$renewal_event_count" = "1"
+          test "$subscription_version" = "2"
+          stage="schedule subscription cancellation"
+          curl --fail-with-body --show-error --cookie /tmp/user.cookies -H 'Content-Type: application/json' -H "X-CSRF-Token: $csrf" \
+            -X PUT -d '{"cancel":true}' http://localhost:8080/api/v1/subscriptions/10000000-0000-7000-8000-000000000003/cancel-at-period-end
+          docker compose -f deploy/docker-compose.yml exec -T postgres psql -U vps_billing -d vps_billing -v ON_ERROR_STOP=1 -c \
+            "UPDATE subscriptions SET current_period_end=now()-interval '1 minute',next_due_at=now()-interval '1 minute' WHERE id='10000000-0000-7000-8000-000000000003';"
+          stage="wait for lifecycle cancellation"
+          for wait_attempt in $(seq 1 20); do
+            subscription_status=$(docker compose -f deploy/docker-compose.yml exec -T postgres psql -U vps_billing -d vps_billing -tAc "SELECT status FROM subscriptions WHERE id='10000000-0000-7000-8000-000000000003'")
+            test "$subscription_status" = "cancelled" && break
+            sleep 1
+          done
+          test "$subscription_status" = "cancelled"
+          stage="logout user"
+          curl --fail-with-body --show-error --cookie /tmp/user.cookies -H "X-CSRF-Token: $csrf" -X POST http://localhost:8080/api/v1/auth/logout
+          stage="bootstrap admin"
+          docker compose -f deploy/docker-compose.yml exec -T \
+            -e ADMIN_BOOTSTRAP_PASSWORD='ci-admin-password-is-long-enough' \
+            server /app/bootstrap-admin --email ci-admin@example.com --display-name CI
+          stage="login admin"
+          admin_response=$(curl --fail-with-body --show-error --cookie-jar /tmp/admin.cookies \
+            -H 'Content-Type: application/json' \
+            -d '{"email":"ci-admin@example.com","password":"ci-admin-password-is-long-enough"}' \
+            http://localhost:8080/api/v1/admin/auth/login)
+          stage="verify admin permissions"
+          echo "$admin_response" | jq -e '.data.principal.permissions | index("admins.manage")'
+          admin_csrf=$(echo "$admin_response" | jq -er '.data.csrf_token')
+          stage="verify admin control plane reads"
+          curl --fail-with-body --show-error --cookie /tmp/admin.cookies http://localhost:8080/api/v1/admin/dashboard | jq -e '.data.metrics.users >= 1'
+          for resource in users products orders payments ledger subscriptions instances nodes providers operations tickets audit admins roles settings; do
+            curl --fail-with-body --show-error --cookie /tmp/admin.cookies "http://localhost:8080/api/v1/admin/$resource" | jq -e '.data.items | type == "array"'
+          done
+          curl --fail-with-body --show-error --cookie /tmp/admin.cookies "http://localhost:8080/api/v1/admin/instances/$instance_id" | jq -e --arg id "$instance_id" '.data.id == $id'
+          curl --fail-with-body --show-error --cookie /tmp/admin.cookies "http://localhost:8080/api/v1/admin/operations/$operation_id" | jq -e '.data.steps | length == 11'
+          stage="verify audited balanced admin wallet adjustment"
+          adjustment=$(curl --fail-with-body --show-error --cookie /tmp/admin.cookies -H 'Content-Type: application/json' -H "X-CSRF-Token: $admin_csrf" -d "{\"user_id\":\"$user_id\",\"currency\":\"USD\",\"amount_minor\":500,\"description\":\"CI service credit\"}" http://localhost:8080/api/v1/admin/ledger/adjustments)
+          adjustment_id=$(echo "$adjustment" | jq -er '.data.transaction_id')
+          adjustment_entries=$(docker compose -f deploy/docker-compose.yml exec -T postgres psql -U vps_billing -d vps_billing -tAc "SELECT count(*) FROM ledger_entries WHERE transaction_id='$adjustment_id'")
+          adjustment_balance=$(docker compose -f deploy/docker-compose.yml exec -T postgres psql -U vps_billing -d vps_billing -tAc "SELECT COALESCE(sum(CASE direction WHEN 'debit' THEN amount_minor ELSE -amount_minor END),0) FROM ledger_entries WHERE transaction_id='$adjustment_id'")
+          adjustment_audit=$(docker compose -f deploy/docker-compose.yml exec -T postgres psql -U vps_billing -d vps_billing -tAc "SELECT count(*) FROM audit_events WHERE action='ledger.adjusted' AND resource_id=(SELECT account_id FROM ledger_entries WHERE transaction_id='$adjustment_id' AND account_type='wallet')")
+          test "$adjustment_entries" = "2"
+          test "$adjustment_balance" = "0"
+          test "$adjustment_audit" = "1"
+          stage="verify secret setting masking and audit"
+          curl --fail-with-body --show-error --cookie /tmp/admin.cookies -H 'Content-Type: application/json' -H "X-CSRF-Token: $admin_csrf" -X PUT -d '{"value":"private-ci-value","is_secret":true}' http://localhost:8080/api/v1/admin/settings/ci.secret | jq -e '.data.value == "***"'
+          curl --fail-with-body --show-error --cookie /tmp/admin.cookies http://localhost:8080/api/v1/admin/settings | jq -e '.data.items[] | select(.key == "ci.secret") | .value == "***"'
+      - name: Exercise encrypted backup and restore
+        run: |
+          set -Eeuo pipefail
+          backup_root=$(mktemp -d)
+          restore_config=$(mktemp -d)
+          passphrase_file=$(mktemp)
+          chmod 600 "$passphrase_file"
+          printf '%s\n' 'ci-backup-passphrase-not-used-outside-this-run' > "$passphrase_file"
+          backup_set=$(BACKUP_DIRECTORY="$backup_root" \
+            BACKUP_PASSPHRASE_FILE="$passphrase_file" \
+            CONFIG_SOURCE="$PWD/.env.example" \
+            deploy/scripts/backup.sh)
+          test -s "$backup_set/database.dump.enc"
+          test -s "$backup_set/config.tar.enc"
+          docker compose -f deploy/docker-compose.yml stop server worker runman-gateway
+          BACKUP_SET="$backup_set" \
+            BACKUP_PASSPHRASE_FILE="$passphrase_file" \
+            CONFIG_RESTORE_DIRECTORY="$restore_config" \
+            deploy/scripts/restore.sh --confirm
+          test -f "$restore_config/.env.example"
+          docker compose -f deploy/docker-compose.yml up --detach --wait server worker runman-gateway
+          METRICS_TOKEN='development-metrics-token-change-before-production' deploy/scripts/verify-release.sh
+      - name: Show service logs
+        if: failure()
+        run: docker compose -f deploy/docker-compose.yml logs
+      - name: Stop foundation stack
+        if: always()
+        run: docker compose -f deploy/docker-compose.yml down --volumes

@@ -1,0 +1,129 @@
+name: vps-billing
+
+x-backend-environment: &backend-environment
+  APP_ENV: development
+  SERVER_ADDRESS: ":8080"
+  DATABASE_URL: "postgres://${POSTGRES_USER:-vps_billing}:${POSTGRES_PASSWORD:-development-only}@postgres:5432/${POSTGRES_DB:-vps_billing}?sslmode=disable"
+  REDIS_URL: "redis://redis:6379/0"
+  USER_WEB_ORIGIN: "http://localhost:${APP_PORT:-8080}"
+  ADMIN_WEB_ORIGIN: "http://localhost:${APP_PORT:-8080}"
+  USER_SESSION_SECRET: "development-user-session-secret-change-before-production"
+  ADMIN_SESSION_SECRET: "development-admin-session-secret-change-before-production"
+  USER_CSRF_SECRET: "development-user-csrf-secret-change-before-production"
+  ADMIN_CSRF_SECRET: "development-admin-csrf-secret-change-before-production"
+  ADMIN_TOTP_ENCRYPTION_KEY: "development-admin-totp-key-change-before-production"
+  FAKE_PAYMENT_WEBHOOK_SECRET: "development-fake-payment-secret-change-before-production"
+  METRICS_TOKEN: "development-metrics-token-change-before-production"
+  FAKE_PAYMENT_ENABLED: "true"
+  SUBSCRIPTION_GRACE_PERIOD: "72h"
+  COOKIE_SECURE: "false"
+  LOG_LEVEL: info
+  RUNMAN_GATEWAY_ADDRESS: ":9090"
+  RUNMAN_INSECURE: "true"
+
+x-backend-build: &backend-build
+  context: ..
+  dockerfile: backend/Dockerfile
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-vps_billing}
+      POSTGRES_USER: ${POSTGRES_USER:-vps_billing}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-development-only}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:8-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  migrate:
+    image: vps-billing-backend:local
+    build: *backend-build
+    entrypoint: ["/app/migrate"]
+    environment: *backend-environment
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  server:
+    image: vps-billing-backend:local
+    build: *backend-build
+    environment: *backend-environment
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/health/ready"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  worker:
+    image: vps-billing-backend:local
+    build: *backend-build
+    entrypoint: ["/app/worker"]
+    environment: *backend-environment
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+
+  runman-gateway:
+    image: vps-billing-backend:local
+    build: *backend-build
+    entrypoint: ["/app/runman-gateway"]
+    environment: *backend-environment
+    ports:
+      - "${RUNMAN_PORT:-9090}:9090"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  user-web:
+    build:
+      context: ..
+      dockerfile: frontend/user-web/Dockerfile
+    depends_on:
+      server:
+        condition: service_healthy
+
+  admin-web:
+    build:
+      context: ..
+      dockerfile: frontend/admin-web/Dockerfile
+    depends_on:
+      server:
+        condition: service_healthy
+
+  reverse-proxy:
+    image: nginx:1.29-alpine
+    ports:
+      - "${APP_PORT:-8080}:80"
+    volumes:
+      - ./nginx/gateway.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - user-web
+      - admin-web
+
+volumes:
+  postgres_data:
+  redis_data:

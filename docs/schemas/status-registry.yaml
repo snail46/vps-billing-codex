@@ -1,0 +1,106 @@
+version: 1
+
+account:
+  active: {severity: success, zh_CN: "正常", en_US: "Active"}
+  suspended: {severity: warning, zh_CN: "已暂停", en_US: "Suspended"}
+  disabled: {severity: error, zh_CN: "已停用", en_US: "Disabled"}
+
+order:
+  pending: {severity: info, zh_CN: "待支付", en_US: "Pending payment"}
+  paid: {severity: success, zh_CN: "已支付", en_US: "Paid"}
+  fulfilling: {severity: info, zh_CN: "履约中", en_US: "Fulfilling"}
+  fulfilled: {severity: success, zh_CN: "已完成", en_US: "Fulfilled"}
+  cancelled: {severity: neutral, zh_CN: "已取消", en_US: "Cancelled"}
+  refund_pending: {severity: warning, zh_CN: "退款中", en_US: "Refund pending"}
+  refunded: {severity: neutral, zh_CN: "已退款", en_US: "Refunded"}
+
+payment:
+  pending: {severity: info, zh_CN: "待支付", en_US: "Pending"}
+  processing: {severity: info, zh_CN: "处理中", en_US: "Processing"}
+  succeeded: {severity: success, zh_CN: "支付成功", en_US: "Succeeded"}
+  failed: {severity: error, zh_CN: "支付失败", en_US: "Failed"}
+  partially_refunded: {severity: warning, zh_CN: "部分退款", en_US: "Partially refunded"}
+  refunded: {severity: neutral, zh_CN: "已退款", en_US: "Refunded"}
+
+invoice:
+  open: {severity: info, zh_CN: "待支付", en_US: "Open"}
+  paid: {severity: success, zh_CN: "已支付", en_US: "Paid"}
+  void: {severity: neutral, zh_CN: "已作废", en_US: "Void"}
+
+subscription:
+  pending: {severity: info, zh_CN: "等待开通", en_US: "Pending"}
+  active: {severity: success, zh_CN: "有效", en_US: "Active"}
+  past_due: {severity: warning, zh_CN: "已逾期", en_US: "Past due"}
+  suspended: {severity: warning, zh_CN: "已暂停", en_US: "Suspended"}
+  cancelled: {severity: neutral, zh_CN: "已取消", en_US: "Cancelled"}
+  expired: {severity: neutral, zh_CN: "已过期", en_US: "Expired"}
+  terminated: {severity: error, zh_CN: "已终止", en_US: "Terminated"}
+
+provider:
+  active: {severity: success, zh_CN: "正常", en_US: "Active"}
+  degraded: {severity: warning, zh_CN: "性能下降", en_US: "Degraded"}
+  unavailable: {severity: error, zh_CN: "不可用", en_US: "Unavailable"}
+  disabled: {severity: neutral, zh_CN: "已停用", en_US: "Disabled"}
+
+node:
+  online: {severity: success, zh_CN: "在线", en_US: "Online"}
+  degraded: {severity: warning, zh_CN: "性能下降", en_US: "Degraded"}
+  draining: {severity: warning, zh_CN: "正在排空", en_US: "Draining"}
+  maintenance: {severity: info, zh_CN: "维护中", en_US: "Maintenance"}
+  offline: {severity: error, zh_CN: "离线", en_US: "Offline"}
+
+reservation:
+  reserved: {severity: info, zh_CN: "已预留", en_US: "Reserved"}
+  committed: {severity: success, zh_CN: "已分配", en_US: "Committed"}
+  released: {severity: neutral, zh_CN: "已释放", en_US: "Released"}
+  expired: {severity: warning, zh_CN: "已过期", en_US: "Expired"}
+
+instance:
+  running:
+    severity: success
+    zh_CN: "运行中"
+    en_US: "Running"
+    allowed_actions: [stop, restart, reinstall, renew]
+  stopped:
+    severity: neutral
+    zh_CN: "已停止"
+    en_US: "Stopped"
+    allowed_actions: [start, reinstall, renew]
+  provisioning:
+    severity: info
+    zh_CN: "正在开通"
+    en_US: "Provisioning"
+    allowed_actions: []
+  restarting:
+    severity: info
+    zh_CN: "正在重启"
+    en_US: "Restarting"
+    allowed_actions: []
+  reinstalling:
+    severity: info
+    zh_CN: "正在重装"
+    en_US: "Reinstalling"
+    allowed_actions: []
+  suspended:
+    severity: warning
+    zh_CN: "已暂停"
+    en_US: "Suspended"
+    allowed_actions: [renew]
+  unknown:
+    severity: warning
+    zh_CN: "状态未知"
+    en_US: "Unknown"
+    allowed_actions: []
+  error:
+    severity: error
+    zh_CN: "异常"
+    en_US: "Error"
+    allowed_actions: []
+
+operation:
+  queued: {severity: info, zh_CN: "等待处理", en_US: "Queued"}
+  running: {severity: info, zh_CN: "处理中", en_US: "Running"}
+  verifying: {severity: info, zh_CN: "正在确认结果", en_US: "Verifying"}
+  retrying: {severity: warning, zh_CN: "正在重试", en_US: "Retrying"}
+  succeeded: {severity: success, zh_CN: "已完成", en_US: "Completed"}
+  failed: {severity: error, zh_CN: "失败", en_US: "Failed"}
