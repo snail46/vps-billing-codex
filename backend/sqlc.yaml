@@ -10,6 +10,17 @@ sql:
       - "internal/migrations/sql/000006_operations.up.sql"
       - "internal/migrations/sql/000007_provision.up.sql"
       - "internal/migrations/sql/000008_user_portal.up.sql"
+      - "internal/migrations/sql/000009_admin_portal.up.sql"
+      - "internal/migrations/sql/000010_runman.up.sql"
+      - "internal/migrations/sql/000011_reconciler.up.sql"
+      - "internal/migrations/sql/000012_release_hardening.up.sql"
+      - "internal/migrations/sql/000013_v2_catalog.up.sql"
+      - "internal/migrations/sql/000014_v2_operations_nat.up.sql"
+      - "internal/migrations/sql/000015_v2_provider_platform.up.sql"
+      - "internal/migrations/sql/000016_v2_scheduler.up.sql"
+      - "internal/migrations/sql/000017_v2_usage_billing.up.sql"
+      - "internal/migrations/sql/000018_v2_reliability.up.sql"
+      - "internal/migrations/sql/000019_v2_commercial.up.sql"
     queries: "internal/store/queries"
     gen:
       go:

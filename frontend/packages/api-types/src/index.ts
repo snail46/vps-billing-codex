@@ -54,14 +54,18 @@ export interface TOTPSetup {
 
 export interface CatalogItem {
   product_id: string; product_slug: string; product_name_i18n: Record<string, string>; description_i18n: Record<string, string>;
+  product_type: "vps" | "nat_vps"; featured: boolean;
   plan_id: string; plan_slug: string; plan_name_i18n: Record<string, string>; cpu_cores: number; memory_mb: number; disk_gb: number;
   traffic_gb: number | null; bandwidth_mbps: number | null; ipv4_count: number; ipv6_count: number; nat_port_count: number;
-  virtualization: string; billing_cycle: string; price_minor: number; currency: string;
+  virtualization: string; billing_cycle: string; price_minor: number; currency: string; stock_mode: string; stock_quantity: number | null;
+  setup_fee_minor: number; traffic_overage_price_minor: number; region: string; available: boolean;
+  shared_ipv4: boolean; port_forward: boolean; traffic_meter: boolean;
 }
 
 export interface Order { id: string; order_no: string; status: string; total_minor: number; currency: string; kind: string; payment_id?: string; payment_status?: string; subscription_id?: string }
 export interface Invoice { id: string; invoice_no: string; status: string; amount_minor: number; currency: string; due_at: string; subscription_id?: string; order_id?: string }
 export interface Wallet { id: string; currency: string; available_balance_minor: number }
+export interface BillingProfile { user_id: string; legal_name: string; tax_id: string; country_code: string; address: Record<string,string>; updated_at: string }
 export interface ItemList<T> { items: T[] }
 
 export interface Instance {
@@ -71,7 +75,9 @@ export interface Instance {
   current_period_end: string | null; plan_slug: string; plan_name_i18n: Record<string, string>;
 }
 export interface InstanceNetwork { id: string; type: string; address: string; gateway: string; prefix: number | null; created_at: string }
+export interface PortForwardMapping { id: string; protocol: "tcp" | "udp"; public_ip: string; public_port: number; guest_port: number; description: string; status: string; operation_id?: string; error_code?: string; created_at: string; updated_at: string }
 export interface TrafficRecord { period_start: string; period_end: string; rx_bytes: number; tx_bytes: number; source: string }
+export interface UsageSummary { period_start: string; period_end: string; included_bytes: number; used_bytes: number; overage_bytes: number; estimated_minor: number; currency: string }
 export interface Notification { id: string; type: string; title_key: string; message_key: string; parameters: Record<string, unknown>; severity: string; read_at: string | null; created_at: string }
 export interface TicketMessage { id: string; sender_type: string; message: string; created_at: string }
 export interface Ticket { id: string; ticket_no: string; subject: string; status: string; priority: string; created_at: string; updated_at: string; closed_at: string | null; messages?: TicketMessage[] }
@@ -147,6 +153,7 @@ export interface Operation {
   created_at: string;
   updated_at: string;
   steps: OperationStep[];
+  attempts: Array<{ attempt: number; status: string; error_code: string | null; started_at: string; finished_at: string | null }>;
 }
 
 export class ApiRequestError extends Error {

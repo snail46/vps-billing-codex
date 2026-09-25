@@ -3,7 +3,7 @@ name: CI
 on:
   pull_request:
   push:
-    branches: [main, v1-release]
+    branches: [main, v1-release, codex/v2-release]
 
 permissions:
   contents: read
@@ -118,6 +118,9 @@ jobs:
           docker compose -f deploy/docker-compose.yml exec -T postgres \
             psql -U vps_billing -d vps_billing -v ON_ERROR_STOP=1 -c \
             "INSERT INTO node_groups(id,name,region,status) VALUES ('10000000-0000-7000-8000-000000000010','ci-group','ci-region','active'); INSERT INTO providers(id,name,provider_type,status,capabilities) VALUES ('10000000-0000-7000-8000-000000000011','ci-mock','mock','active','{\"create_instance\":true}'); INSERT INTO nodes(id,provider_id,node_group_id,provider_node_id,name,region,status,cpu_total,memory_total_mb,disk_total_gb,ipv4_total,capabilities,last_seen_at) VALUES ('10000000-0000-7000-8000-000000000012','10000000-0000-7000-8000-000000000011','10000000-0000-7000-8000-000000000010','ci-node-provider-id','ci-node','ci-region','online',16,32768,1000,16,'{\"virtualization\":\"kvm\"}',now()); INSERT INTO products(id,slug,name_i18n,status) VALUES ('10000000-0000-7000-8000-000000000001','ci-product','{\"en-US\":\"CI Product\",\"zh-CN\":\"CI 产品\"}','active'); INSERT INTO plans(id,product_id,node_group_id,slug,name_i18n,status,cpu_cores,memory_mb,disk_gb,ipv4_count,virtualization,billing_cycle,price_minor,currency,default_image_id) VALUES ('10000000-0000-7000-8000-000000000002','10000000-0000-7000-8000-000000000001','10000000-0000-7000-8000-000000000010','ci-plan','{\"en-US\":\"CI Plan\",\"zh-CN\":\"CI 套餐\"}','active',1,1024,20,1,'kvm','monthly',1299,'USD','ubuntu-24.04');"
+          docker compose -f deploy/docker-compose.yml exec -T postgres \
+            psql -U vps_billing -d vps_billing -v ON_ERROR_STOP=1 -c \
+            "UPDATE providers SET capabilities='{\"create_instance\":true,\"shared_ipv4\":true,\"port_forward\":true,\"traffic_meter\":true,\"nat\":true,\"traffic\":true}'; UPDATE nodes SET nat_port_total=128,capabilities=capabilities||'{\"port_forward\":true}'::jsonb; UPDATE products SET product_type='nat_vps',featured=true; UPDATE plans SET nat_port_count=4,traffic_gb=1,traffic_overage_price_minor=25; INSERT INTO promotions(id,code,status,discount_type,discount_value,starts_at) VALUES ('10000000-0000-7000-8000-000000000020','CI10','active','percent',1000,now());"
           stage="register user"
           response=$(curl --fail-with-body --show-error --cookie-jar /tmp/user.cookies \
             -H 'Content-Type: application/json' \
@@ -134,6 +137,19 @@ jobs:
             http://localhost:9090/api/v1/orders)
           payment_id=$(echo "$order" | jq -er '.data.payment_id')
           order_id=$(echo "$order" | jq -er '.data.id')
+          stage="verify promotion snapshot and idempotency conflict"
+          promo_order=$(curl --fail-with-body --show-error --cookie /tmp/user.cookies \
+            -H 'Content-Type: application/json' -H "X-CSRF-Token: $csrf" -H 'Idempotency-Key: ci-promotion-order-1' \
+            -d '{"plan_id":"10000000-0000-7000-8000-000000000002","quantity":1,"promotion_code":"CI10"}' \
+            http://localhost:9090/api/v1/orders)
+          promo_order_id=$(echo "$promo_order" | jq -er '.data | if .total_minor == 1170 then .id else error("promotion total mismatch") end')
+          promo_snapshot_count=$(docker compose -f deploy/docker-compose.yml exec -T postgres psql -U vps_billing -d vps_billing -tAc "SELECT count(*) FROM orders WHERE id='$promo_order_id' AND discount_minor=129 AND promotion_snapshot->>'code'='CI10'")
+          test "$promo_snapshot_count" = "1"
+          conflict_status=$(curl --silent --output /dev/null --write-out '%{http_code}' --cookie /tmp/user.cookies \
+            -H 'Content-Type: application/json' -H "X-CSRF-Token: $csrf" -H 'Idempotency-Key: ci-promotion-order-1' \
+            -d '{"plan_id":"10000000-0000-7000-8000-000000000002","quantity":2,"promotion_code":"CI10"}' \
+            http://localhost:9090/api/v1/orders)
+          test "$conflict_status" = "409"
           payload=$(jq -cn --arg payment_id "$payment_id" '{event_id:"ci-payment-event-1",payment_id:$payment_id,external_payment_id:"ci-external-payment-1",status:"succeeded",amount_minor:1299,currency:"USD"}')
           signature=$(printf '%s' "$payload" | openssl dgst -sha256 -hmac 'development-fake-payment-secret-change-before-production' | awk '{print $2}')
           stage="deliver payment webhook 100 times"
@@ -177,6 +193,39 @@ jobs:
           curl --fail-with-body --show-error --cookie /tmp/user.cookies "http://localhost:9090/api/v1/instances/$instance_id" | jq -e '.data.observed_state == "running"'
           curl --fail-with-body --show-error --cookie /tmp/user.cookies "http://localhost:9090/api/v1/instances/$instance_id/networks" | jq -e '.data.items | type == "array"'
           curl --fail-with-body --show-error --cookie /tmp/user.cookies "http://localhost:9090/api/v1/instances/$instance_id/traffic" | jq -e '.data.items | type == "array"'
+          stage="wait for usage collection and verify duplicate sample guard"
+          usage=''
+          for wait_attempt in $(seq 1 30); do
+            if usage=$(curl --fail-with-body --silent --show-error --cookie /tmp/user.cookies "http://localhost:9090/api/v1/instances/$instance_id/usage"); then
+              echo "$usage" | jq -e '.data.used_bytes >= 0 and .data.estimated_minor >= 0' && break
+            fi
+            sleep 1
+          done
+          echo "$usage" | jq -e '.data.included_bytes == 1073741824'
+          docker compose -f deploy/docker-compose.yml exec -T postgres psql -U vps_billing -d vps_billing -v ON_ERROR_STOP=1 -c \
+            "INSERT INTO usage_samples(id,provider_id,instance_id,source_event_id,period_start,period_end,rx_bytes,tx_bytes) SELECT gen_random_uuid(),provider_id,id,'ci-duplicate-usage',now()-interval '5 minutes',now(),10,20 FROM instances WHERE id='$instance_id' ON CONFLICT(provider_id,source_event_id) DO NOTHING; INSERT INTO usage_samples(id,provider_id,instance_id,source_event_id,period_start,period_end,rx_bytes,tx_bytes) SELECT gen_random_uuid(),provider_id,id,'ci-duplicate-usage',now()-interval '5 minutes',now(),10,20 FROM instances WHERE id='$instance_id' ON CONFLICT(provider_id,source_event_id) DO NOTHING;"
+          duplicate_usage_count=$(docker compose -f deploy/docker-compose.yml exec -T postgres psql -U vps_billing -d vps_billing -tAc "SELECT count(*) FROM usage_samples WHERE source_event_id='ci-duplicate-usage'")
+          test "$duplicate_usage_count" = "1"
+          stage="create idempotent NAT mapping"
+          nat=$(curl --fail-with-body --show-error --cookie /tmp/user.cookies -H 'Content-Type: application/json' -H "X-CSRF-Token: $csrf" -H 'Idempotency-Key: ci-nat-add-1' -d '{"protocol":"tcp","public_port":32001,"guest_port":22,"description":"CI SSH"}' "http://localhost:9090/api/v1/instances/$instance_id/port-forwards")
+          nat_operation_id=$(echo "$nat" | jq -er '.data.operation_id')
+          for wait_attempt in $(seq 1 30); do
+            nat_status=$(curl --fail-with-body --silent --show-error --cookie /tmp/user.cookies "http://localhost:9090/api/v1/operations/$nat_operation_id" | jq -r '.data.status')
+            test "$nat_status" = "succeeded" && break
+            sleep 1
+          done
+          test "$nat_status" = "succeeded"
+          curl --fail-with-body --show-error --cookie /tmp/user.cookies -H 'Content-Type: application/json' -H "X-CSRF-Token: $csrf" -H 'Idempotency-Key: ci-nat-add-1' -d '{"protocol":"tcp","public_port":32001,"guest_port":22,"description":"CI SSH"}' "http://localhost:9090/api/v1/instances/$instance_id/port-forwards" | jq -e --arg id "$nat_operation_id" '.data.operation_id == $id'
+          mappings=$(curl --fail-with-body --show-error --cookie /tmp/user.cookies "http://localhost:9090/api/v1/instances/$instance_id/port-forwards")
+          mapping_id=$(echo "$mappings" | jq -er '.data.items | if length == 1 then .[0].id else error("NAT mapping count mismatch") end')
+          nat_delete=$(curl --fail-with-body --show-error --cookie /tmp/user.cookies -X DELETE -H "X-CSRF-Token: $csrf" -H 'Idempotency-Key: ci-nat-delete-1' "http://localhost:9090/api/v1/instances/$instance_id/port-forwards/$mapping_id")
+          nat_delete_operation_id=$(echo "$nat_delete" | jq -er '.data.operation_id')
+          for wait_attempt in $(seq 1 30); do
+            nat_delete_status=$(curl --fail-with-body --silent --show-error --cookie /tmp/user.cookies "http://localhost:9090/api/v1/operations/$nat_delete_operation_id" | jq -r '.data.status')
+            test "$nat_delete_status" = "succeeded" && break
+            sleep 1
+          done
+          test "$nat_delete_status" = "succeeded"
           curl --fail-with-body --show-error --cookie /tmp/user.cookies http://localhost:9090/api/v1/notifications | jq -e '.data.items | length == 1'
           stage="create and reply to support ticket"
           ticket=$(curl --fail-with-body --show-error --cookie /tmp/user.cookies -H 'Content-Type: application/json' -H "X-CSRF-Token: $csrf" -d '{"subject":"CI portal issue","priority":"normal","message":"Initial details"}' http://localhost:9090/api/v1/tickets)
@@ -240,11 +289,26 @@ jobs:
           admin_csrf=$(echo "$admin_response" | jq -er '.data.csrf_token')
           stage="verify admin control plane reads"
           curl --fail-with-body --show-error --cookie /tmp/admin.cookies http://localhost:9092/api/v1/admin/dashboard | jq -e '.data.metrics.users >= 1'
-          for resource in users products orders payments ledger subscriptions instances nodes providers operations tickets audit admins roles settings; do
+          for resource in users products orders payments ledger subscriptions instances nodes providers operations usage dead-letters tickets audit admins roles settings; do
             curl --fail-with-body --show-error --cookie /tmp/admin.cookies "http://localhost:9092/api/v1/admin/$resource" | jq -e '.data.items | type == "array"'
           done
           curl --fail-with-body --show-error --cookie /tmp/admin.cookies "http://localhost:9092/api/v1/admin/instances/$instance_id" | jq -e --arg id "$instance_id" '.data.id == $id'
           curl --fail-with-body --show-error --cookie /tmp/admin.cookies "http://localhost:9092/api/v1/admin/operations/$operation_id" | jq -e '.data.steps | length == 11'
+          curl --fail-with-body --show-error --cookie /tmp/admin.cookies "http://localhost:9092/api/v1/admin/providers/10000000-0000-7000-8000-000000000011" | jq -e '.data.credential_ref == null and (.data.health_history | type == "array")'
+          stage="verify idempotent ledger-backed refund"
+          refund=$(curl --fail-with-body --show-error --cookie /tmp/admin.cookies -H 'Content-Type: application/json' -H "X-CSRF-Token: $admin_csrf" -H 'Idempotency-Key: ci-refund-idempotency-1' -d '{"amount_minor":100,"reason":"CI partial refund"}' "http://localhost:9092/api/v1/admin/payments/$payment_id/refunds")
+          refund_id=$(echo "$refund" | jq -er '.data.id')
+          curl --fail-with-body --show-error --cookie /tmp/admin.cookies -H 'Content-Type: application/json' -H "X-CSRF-Token: $admin_csrf" -H 'Idempotency-Key: ci-refund-idempotency-1' -d '{"amount_minor":100,"reason":"CI partial refund"}' "http://localhost:9092/api/v1/admin/payments/$payment_id/refunds" | jq -e --arg id "$refund_id" '.data.id == $id'
+          refund_count=$(docker compose -f deploy/docker-compose.yml exec -T postgres psql -U vps_billing -d vps_billing -tAc "SELECT count(*) FROM refunds WHERE payment_id='$payment_id'")
+          refund_balance=$(docker compose -f deploy/docker-compose.yml exec -T postgres psql -U vps_billing -d vps_billing -tAc "SELECT COALESCE(sum(CASE e.direction WHEN 'debit' THEN e.amount_minor ELSE -e.amount_minor END),0) FROM ledger_entries e JOIN refunds r ON r.ledger_transaction_id=e.transaction_id WHERE r.id='$refund_id'")
+          test "$refund_count" = "1"
+          test "$refund_balance" = "0"
+          stage="verify dead-letter visibility and audited replay"
+          dead_id=$(docker compose -f deploy/docker-compose.yml exec -T postgres psql -U vps_billing -d vps_billing -qAtc "INSERT INTO outbox_events(id,event_type,aggregate_type,aggregate_id,payload,status,attempts,dead_lettered_at,last_error) VALUES(gen_random_uuid(),'ci.dead.v1','test',gen_random_uuid(),'{}','dead_letter',10,now(),'secret provider text') RETURNING id")
+          curl --fail-with-body --show-error --cookie /tmp/admin.cookies http://localhost:9092/api/v1/admin/dead-letters | jq -e --arg id "$dead_id" '.data.items[] | select(.id == $id) | has("last_error") | not'
+          curl --fail-with-body --show-error --cookie /tmp/admin.cookies -X POST -H "X-CSRF-Token: $admin_csrf" "http://localhost:9092/api/v1/admin/dead-letters/$dead_id/replay" | jq -e '.data.status == "pending"'
+          replay_audit=$(docker compose -f deploy/docker-compose.yml exec -T postgres psql -U vps_billing -d vps_billing -tAc "SELECT count(*) FROM audit_events WHERE action='outbox.replayed' AND resource_id='$dead_id'")
+          test "$replay_audit" = "1"
           stage="verify audited balanced admin wallet adjustment"
           adjustment=$(curl --fail-with-body --show-error --cookie /tmp/admin.cookies -H 'Content-Type: application/json' -H "X-CSRF-Token: $admin_csrf" -d "{\"user_id\":\"$user_id\",\"currency\":\"USD\",\"amount_minor\":500,\"description\":\"CI service credit\"}" http://localhost:9092/api/v1/admin/ledger/adjustments)
           adjustment_id=$(echo "$adjustment" | jq -er '.data.transaction_id')

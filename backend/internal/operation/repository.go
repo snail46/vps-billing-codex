@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"reflect"
 	"time"
 
 	"github.com/google/uuid"
@@ -46,7 +47,7 @@ func (r *PostgresRepository) Create(ctx context.Context, request CreateRequest) 
 	defer func() { _ = tx.Rollback(ctx) }()
 	queries := db.New(tx)
 	operationID := newID()
-	row, err := queries.CreateOperation(ctx, db.CreateOperationParams{ID: operationID, Type: request.Type, ResourceType: request.ResourceType, ResourceID: request.ResourceID, MessageKey: text("operation.queued"), IdempotencyKey: request.IdempotencyKey, MaxRetries: request.MaxRetries, TraceID: request.TraceID, UserID: request.UserID, ActorAdminID: request.ActorAdminID})
+	row, err := queries.CreateOperation(ctx, db.CreateOperationParams{ID: operationID, Type: request.Type, ResourceType: request.ResourceType, ResourceID: request.ResourceID, MessageKey: text("operation.queued"), IdempotencyKey: request.IdempotencyKey, MaxRetries: request.MaxRetries, TraceID: request.TraceID, UserID: request.UserID, ActorAdminID: request.ActorAdminID, Input: nonNilJSON(request.Input), DeadlineAt: optionalTimestamp(request.DeadlineAt), ParentOperationID: request.ParentID})
 	if err != nil {
 		if isUniqueViolation(err) {
 			_ = tx.Rollback(ctx)
@@ -109,6 +110,9 @@ func (r *PostgresRepository) Claim(ctx context.Context, operationID uuid.UUID) (
 		return db.Operation{}, ErrNotFound
 	}
 	if err != nil {
+		return db.Operation{}, err
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO operation_attempts(id,operation_id,attempt,status) VALUES($1,$2,$3,'running') ON CONFLICT(operation_id,attempt) DO NOTHING`, newID(), row.ID, row.RetryCount+1); err != nil {
 		return db.Operation{}, err
 	}
 	if err := createEvent(ctx, queries, "operation.updated.v1", row, nil); err != nil {
@@ -189,6 +193,9 @@ func (r *PostgresRepository) ScheduleRetry(ctx context.Context, current db.Opera
 	if err != nil {
 		return err
 	}
+	if _, err := tx.Exec(ctx, `UPDATE operation_attempts SET status='retrying',error_code=$3,error_message=$4,finished_at=now() WHERE operation_id=$1 AND attempt=$2 AND finished_at IS NULL`, current.ID, current.RetryCount+1, code, raw); err != nil {
+		return err
+	}
 	if err := createEvent(ctx, queries, "operation.updated.v1", updated, nil); err != nil {
 		return err
 	}
@@ -263,6 +270,142 @@ func (r *PostgresRepository) RecoverStuck(ctx context.Context, cutoff time.Time,
 	return len(ids), nil
 }
 
+func (r *PostgresRepository) CreateAdminRetry(ctx context.Context, sourceID, adminID uuid.UUID, idempotencyKey, traceID string) (Operation, error) {
+	if existing, err := r.queries.GetOperationByIdempotency(ctx, idempotencyKey); err == nil {
+		if existing.ParentOperationID == nil || *existing.ParentOperationID != sourceID || existing.ActorAdminID == nil || *existing.ActorAdminID != adminID {
+			return Operation{}, ErrIdempotencyConflict
+		}
+		return r.operationWithSteps(ctx, existing)
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return Operation{}, err
+	}
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return Operation{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err = tx.Exec(ctx, `SELECT id FROM operations WHERE id=$1 FOR UPDATE`, sourceID); err != nil {
+		return Operation{}, err
+	}
+	queries := db.New(tx)
+	source, err := queries.GetOperationByID(ctx, sourceID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Operation{}, ErrNotFound
+	}
+	if err != nil {
+		return Operation{}, err
+	}
+	if source.Status != "failed" && source.Status != "cancelled" {
+		return Operation{}, ErrStateConflict
+	}
+	retryID := newID()
+	deadline := pgtype.Timestamptz{}
+	if source.DeadlineAt.Valid {
+		deadline = timestamp(r.now().UTC().Add(10 * time.Minute))
+	}
+	created, err := queries.CreateOperation(ctx, db.CreateOperationParams{ID: retryID, Type: source.Type, ResourceType: source.ResourceType, ResourceID: source.ResourceID, MessageKey: text("operation.queued"), IdempotencyKey: idempotencyKey, MaxRetries: source.MaxRetries, TraceID: traceID, UserID: source.UserID, ActorAdminID: &adminID, Input: source.Input, DeadlineAt: deadline, ParentOperationID: &sourceID})
+	if err != nil {
+		if isUniqueViolation(err) {
+			return Operation{}, ErrIdempotencyConflict
+		}
+		return Operation{}, err
+	}
+	if _, err = tx.Exec(ctx, `INSERT INTO operation_steps(id,operation_id,step_key,step_order,status,progress) SELECT gen_random_uuid(),$1,step_key,step_order,'pending',0 FROM operation_steps WHERE operation_id=$2 ORDER BY step_order`, retryID, sourceID); err != nil {
+		return Operation{}, err
+	}
+	if err = createEvent(ctx, queries, "operation.queued.v1", created, map[string]any{"parent_operation_id": sourceID}); err != nil {
+		return Operation{}, err
+	}
+	if _, err = tx.Exec(ctx, `INSERT INTO audit_events(id,actor_type,actor_id,action,resource_type,resource_id,before_data,after_data,trace_id) VALUES($1,'admin',$2,'operation.retried','operation',$3,jsonb_build_object('status',$4),jsonb_build_object('retry_operation_id',$5),$6)`, newID(), adminID, sourceID, source.Status, retryID, traceID); err != nil {
+		return Operation{}, err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return Operation{}, err
+	}
+	return r.operationWithSteps(ctx, created)
+}
+
+func (r *PostgresRepository) CancelAdmin(ctx context.Context, operationID, adminID uuid.UUID, traceID string) (Operation, error) {
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return Operation{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	queries := db.New(tx)
+	var previous string
+	if err = tx.QueryRow(ctx, `SELECT status FROM operations WHERE id=$1 FOR UPDATE`, operationID).Scan(&previous); errors.Is(err, pgx.ErrNoRows) {
+		return Operation{}, ErrNotFound
+	} else if err != nil {
+		return Operation{}, err
+	}
+	if previous != "queued" && previous != "retrying" {
+		return Operation{}, ErrStateConflict
+	}
+	if _, err = tx.Exec(ctx, `UPDATE operations SET status='cancelled',phase='cancelled',progress=100,message_key='operation.cancelled',retryable=false,error_code='ADMIN_CANCELLED',error_message='cancelled by administrator',finished_at=now(),updated_at=now() WHERE id=$1`, operationID); err != nil {
+		return Operation{}, err
+	}
+	updated, err := queries.GetOperationByID(ctx, operationID)
+	if err != nil {
+		return Operation{}, err
+	}
+	if err = createEvent(ctx, queries, "operation.updated.v1", updated, nil); err != nil {
+		return Operation{}, err
+	}
+	if _, err = tx.Exec(ctx, `INSERT INTO audit_events(id,actor_type,actor_id,action,resource_type,resource_id,before_data,after_data,trace_id) VALUES($1,'admin',$2,'operation.cancelled','operation',$3,jsonb_build_object('status',$4),jsonb_build_object('status','cancelled'),$5)`, newID(), adminID, operationID, previous, traceID); err != nil {
+		return Operation{}, err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return Operation{}, err
+	}
+	return r.operationWithSteps(ctx, updated)
+}
+
+func (r *PostgresRepository) ExpireDeadlines(ctx context.Context, now time.Time, batchSize int) (int, error) {
+	if batchSize <= 0 {
+		return 0, ErrInvalidRequest
+	}
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	rows, err := tx.Query(ctx, `SELECT id FROM operations WHERE deadline_at<=$1 AND status IN ('queued','retrying') ORDER BY deadline_at FOR UPDATE SKIP LOCKED LIMIT $2`, now.UTC(), batchSize)
+	if err != nil {
+		return 0, err
+	}
+	ids := []uuid.UUID{}
+	for rows.Next() {
+		var id uuid.UUID
+		if err = rows.Scan(&id); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		ids = append(ids, id)
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return 0, err
+	}
+	queries := db.New(tx)
+	for _, id := range ids {
+		if _, err = tx.Exec(ctx, `UPDATE operations SET status='failed',phase='failed',progress=100,message_key='operation.failed',retryable=false,error_code='OPERATION_DEADLINE_EXCEEDED',error_message='operation deadline exceeded',finished_at=now(),updated_at=now() WHERE id=$1`, id); err != nil {
+			return 0, err
+		}
+		updated, getErr := queries.GetOperationByID(ctx, id)
+		if getErr != nil {
+			return 0, getErr
+		}
+		if getErr = createEvent(ctx, queries, "operation.updated.v1", updated, nil); getErr != nil {
+			return 0, getErr
+		}
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return 0, err
+	}
+	return len(ids), nil
+}
+
 func (r *PostgresRepository) mutate(ctx context.Context, operationID uuid.UUID, mutation func(*db.Queries) (db.Operation, error)) error {
 	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
@@ -284,9 +427,26 @@ func (r *PostgresRepository) mutate(ctx context.Context, operationID uuid.UUID, 
 }
 
 func (r *PostgresRepository) complete(ctx context.Context, operationID uuid.UUID, status, phase string, progress int32, messageKey, errorCode, errorMessage string) error {
-	return r.mutate(ctx, operationID, func(queries *db.Queries) (db.Operation, error) {
-		return queries.CompleteOperation(ctx, db.CompleteOperationParams{ID: operationID, Status: status, Phase: text(phase), Progress: progress, MessageKey: text(messageKey), ErrorCode: text(errorCode), ErrorMessage: text(errorMessage)})
-	})
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	queries := db.New(tx)
+	updated, err := queries.CompleteOperation(ctx, db.CompleteOperationParams{ID: operationID, Status: status, Phase: text(phase), Progress: progress, MessageKey: text(messageKey), ErrorCode: text(errorCode), ErrorMessage: text(errorMessage)})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE operation_attempts SET status=$3,error_code=NULLIF($4,''),error_message=NULLIF($5,''),finished_at=now() WHERE operation_id=$1 AND attempt=$2 AND finished_at IS NULL`, operationID, updated.RetryCount+1, status, errorCode, errorMessage); err != nil {
+		return err
+	}
+	if err := createEvent(ctx, queries, "operation.updated.v1", updated, nil); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 func (r *PostgresRepository) operationWithSteps(ctx context.Context, row db.Operation) (Operation, error) {
@@ -299,6 +459,26 @@ func (r *PostgresRepository) operationWithSteps(ctx context.Context, row db.Oper
 	for _, step := range rows {
 		result.Steps = append(result.Steps, Step{Key: step.StepKey, Order: step.StepOrder, Status: step.Status, Progress: step.Progress, Attempt: step.Attempt, ErrorCode: textPointer(step.ErrorCode), Output: step.Output, StartedAt: timePointer(step.StartedAt), FinishedAt: timePointer(step.FinishedAt)})
 	}
+	attemptRows, err := r.pool.Query(ctx, `SELECT attempt,status,error_code,started_at,finished_at FROM operation_attempts WHERE operation_id=$1 ORDER BY attempt`, row.ID)
+	if err != nil {
+		return Operation{}, err
+	}
+	defer attemptRows.Close()
+	result.Attempts = []Attempt{}
+	for attemptRows.Next() {
+		var item Attempt
+		var code pgtype.Text
+		var finished pgtype.Timestamptz
+		if err := attemptRows.Scan(&item.Attempt, &item.Status, &code, &item.StartedAt, &finished); err != nil {
+			return Operation{}, err
+		}
+		item.ErrorCode, item.FinishedAt = textPointer(code), timePointer(finished)
+		item.StartedAt = item.StartedAt.UTC()
+		result.Attempts = append(result.Attempts, item)
+	}
+	if err := attemptRows.Err(); err != nil {
+		return Operation{}, err
+	}
 	return result, nil
 }
 
@@ -307,13 +487,23 @@ func publicOperation(row db.Operation) Operation {
 }
 
 func sameRequest(row db.Operation, request CreateRequest) bool {
-	return row.Type == request.Type && row.ResourceType == request.ResourceType && row.ResourceID == request.ResourceID && equalUUID(row.UserID, request.UserID) && equalUUID(row.ActorAdminID, request.ActorAdminID)
+	return row.Type == request.Type && row.ResourceType == request.ResourceType && row.ResourceID == request.ResourceID && equalUUID(row.UserID, request.UserID) && equalUUID(row.ActorAdminID, request.ActorAdminID) && equalUUID(row.ParentOperationID, request.ParentID) && equalJSON(row.Input, nonNilJSON(request.Input)) && equalTime(row.DeadlineAt, request.DeadlineAt)
 }
 func equalUUID(left, right *uuid.UUID) bool {
 	if left == nil || right == nil {
 		return left == nil && right == nil
 	}
 	return *left == *right
+}
+func equalJSON(left, right []byte) bool {
+	var leftValue, rightValue any
+	return json.Unmarshal(left, &leftValue) == nil && json.Unmarshal(right, &rightValue) == nil && reflect.DeepEqual(leftValue, rightValue)
+}
+func equalTime(left pgtype.Timestamptz, right *time.Time) bool {
+	if !left.Valid || right == nil {
+		return !left.Valid && right == nil
+	}
+	return left.Time.UTC().Equal(right.UTC())
 }
 
 func createEvent(ctx context.Context, queries *db.Queries, eventType string, row db.Operation, extra map[string]any) error {
@@ -346,6 +536,12 @@ func timePointer(value pgtype.Timestamptz) *time.Time {
 }
 func timestamp(value time.Time) pgtype.Timestamptz {
 	return pgtype.Timestamptz{Time: value.UTC(), Valid: true}
+}
+func optionalTimestamp(value *time.Time) pgtype.Timestamptz {
+	if value == nil {
+		return pgtype.Timestamptz{}
+	}
+	return timestamp(*value)
 }
 func nonNilJSON(value json.RawMessage) []byte {
 	if len(value) == 0 {

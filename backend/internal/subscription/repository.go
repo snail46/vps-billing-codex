@@ -113,6 +113,11 @@ func (p *LifecycleProcessor) ProcessBatch(ctx context.Context) (int, error) {
 		if eventErr := createEvent(ctx, queries, decision.eventType, updated, now); eventErr != nil {
 			return 0, eventErr
 		}
+		if decision.status == "past_due" || decision.status == "suspended" {
+			if _, notifyErr := tx.Exec(ctx, `INSERT INTO notifications(id,user_id,type,title_key,message_key,parameters,severity) VALUES($1,$2,'billing',$3,$4,$5,$6)`, newID(), updated.UserID, "notifications."+decision.status+".title", "notifications."+decision.status+".message", map[string]any{"subscription_id": updated.ID, "grace_until": updated.GraceUntil}, map[bool]string{true: "danger", false: "warning"}[decision.status == "suspended"]); notifyErr != nil {
+				return 0, notifyErr
+			}
+		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return 0, err

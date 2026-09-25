@@ -33,7 +33,7 @@ type storedInstance struct {
 
 func New() *Provider {
 	return &Provider{
-		capabilities: providercontract.Capabilities{CreateInstance: true, DeleteInstance: true, Start: true, Stop: true, Restart: true, Reinstall: true, ResetPassword: true, Traffic: true, Metrics: true, NAT: true, IPv4: true, IPv6: true, SupportedRuntimes: []string{"kvm", "lxc"}},
+		capabilities: providercontract.Capabilities{CreateInstance: true, DeleteInstance: true, Start: true, Stop: true, Restart: true, Reinstall: true, ResetPassword: true, Traffic: true, Metrics: true, NAT: true, SharedIPv4: true, PortForward: true, TrafficMeter: true, IPv4: true, IPv6: true, SupportedRuntimes: []string{"kvm", "lxc"}},
 		instances:    make(map[string]storedInstance), byPlatformID: make(map[string]string), createRequests: make(map[string]providercontract.CreateInstanceRequest), operations: make(map[string]providercontract.Operation), actionTargets: make(map[string]string), portForwards: make(map[string]map[string]providercontract.PortForward),
 		images: []providercontract.Image{{ID: "ubuntu-24.04", Name: "Ubuntu 24.04", OS: "linux", Version: "24.04", Arch: "amd64", Description: "Mock Ubuntu image"}}, now: time.Now,
 	}

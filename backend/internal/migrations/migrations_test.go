@@ -19,7 +19,7 @@ func TestEmbeddedMigrationPairs(t *testing.T) {
 		}
 	}()
 
-	for version := uint(1); version <= 12; version++ {
+	for version := uint(1); version <= 19; version++ {
 		up, _, readErr := driver.ReadUp(version)
 		if readErr != nil {
 			t.Fatalf("ReadUp(%d) error = %v", version, readErr)

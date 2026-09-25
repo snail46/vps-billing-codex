@@ -31,6 +31,9 @@ type Capabilities struct {
 	Traffic           bool     `json:"traffic"`
 	Metrics           bool     `json:"metrics"`
 	NAT               bool     `json:"nat"`
+	SharedIPv4        bool     `json:"shared_ipv4"`
+	PortForward       bool     `json:"port_forward"`
+	TrafficMeter      bool     `json:"traffic_meter"`
 	IPv4              bool     `json:"ipv4"`
 	IPv6              bool     `json:"ipv6"`
 	Snapshot          bool     `json:"snapshot"`

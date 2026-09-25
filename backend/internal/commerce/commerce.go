@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -19,6 +20,8 @@ var (
 	ErrPaymentState         = errors.New("payment state does not allow completion")
 	ErrSubscriptionNotFound = errors.New("subscription not found")
 	ErrSubscriptionState    = errors.New("subscription state does not allow renewal")
+	ErrPromotionInvalid     = errors.New("promotion is invalid")
+	ErrBillingProfile       = errors.New("billing profile is invalid")
 )
 
 type CatalogItem struct {
@@ -26,6 +29,8 @@ type CatalogItem struct {
 	ProductSlug    string          `json:"product_slug"`
 	ProductName    json.RawMessage `json:"product_name_i18n"`
 	Description    json.RawMessage `json:"description_i18n"`
+	ProductType    string          `json:"product_type"`
+	Featured       bool            `json:"featured"`
 	PlanID         uuid.UUID       `json:"plan_id"`
 	PlanSlug       string          `json:"plan_slug"`
 	PlanName       json.RawMessage `json:"plan_name_i18n"`
@@ -41,6 +46,15 @@ type CatalogItem struct {
 	BillingCycle   string          `json:"billing_cycle"`
 	PriceMinor     int64           `json:"price_minor"`
 	Currency       string          `json:"currency"`
+	StockMode      string          `json:"stock_mode"`
+	StockQuantity  *int32          `json:"stock_quantity"`
+	SetupFeeMinor  int64           `json:"setup_fee_minor"`
+	OverageMinor   int64           `json:"traffic_overage_price_minor"`
+	Region         string          `json:"region"`
+	Available      bool            `json:"available"`
+	SharedIPv4     bool            `json:"shared_ipv4"`
+	PortForward    bool            `json:"port_forward"`
+	TrafficMeter   bool            `json:"traffic_meter"`
 }
 
 type Order struct {
@@ -70,6 +84,14 @@ type Wallet struct {
 	Currency              string    `json:"currency"`
 	AvailableBalanceMinor int64     `json:"available_balance_minor"`
 }
+type BillingProfile struct {
+	UserID      uuid.UUID       `json:"user_id"`
+	LegalName   string          `json:"legal_name"`
+	TaxID       string          `json:"tax_id"`
+	CountryCode string          `json:"country_code"`
+	Address     json.RawMessage `json:"address"`
+	UpdatedAt   time.Time       `json:"updated_at"`
+}
 
 type Webhook struct {
 	EventID           string    `json:"event_id"`
@@ -89,11 +111,14 @@ type PaymentResult struct {
 type Repository interface {
 	ListCatalog(context.Context) ([]CatalogItem, error)
 	CreateOrder(context.Context, uuid.UUID, uuid.UUID, int32, string) (Order, error)
+	CreateOrderWithPromotion(context.Context, uuid.UUID, uuid.UUID, int32, string, string) (Order, error)
 	CreateRenewalOrder(context.Context, uuid.UUID, uuid.UUID, string) (Order, error)
 	ListOrders(context.Context, uuid.UUID) ([]Order, error)
 	ListInvoices(context.Context, uuid.UUID) ([]Invoice, error)
 	EnsureWallet(context.Context, uuid.UUID, string) (Wallet, error)
 	CompletePayment(context.Context, Webhook, json.RawMessage) (PaymentResult, error)
+	BillingProfile(context.Context, uuid.UUID) (BillingProfile, error)
+	UpdateBillingProfile(context.Context, uuid.UUID, BillingProfile) (BillingProfile, error)
 }
 
 func (s *Service) CreateRenewalOrder(ctx context.Context, userID, subscriptionID uuid.UUID, key string) (Order, error) {
@@ -110,13 +135,16 @@ func (s *Service) ListCatalog(ctx context.Context) ([]CatalogItem, error) {
 	return s.repository.ListCatalog(ctx)
 }
 func (s *Service) CreateOrder(ctx context.Context, userID, planID uuid.UUID, quantity int32, key string) (Order, error) {
+	return s.CreateOrderWithPromotion(ctx, userID, planID, quantity, key, "")
+}
+func (s *Service) CreateOrderWithPromotion(ctx context.Context, userID, planID uuid.UUID, quantity int32, key, promotionCode string) (Order, error) {
 	if quantity < 1 || quantity > 100 {
 		return Order{}, ErrInvalidQuantity
 	}
 	if len(key) < 8 || len(key) > 255 {
 		return Order{}, ErrInvalidIdempotency
 	}
-	return s.repository.CreateOrder(ctx, userID, planID, quantity, key)
+	return s.repository.CreateOrderWithPromotion(ctx, userID, planID, quantity, key, strings.ToUpper(strings.TrimSpace(promotionCode)))
 }
 func (s *Service) ListOrders(ctx context.Context, userID uuid.UUID) ([]Order, error) {
 	return s.repository.ListOrders(ctx, userID)
@@ -132,4 +160,16 @@ func (s *Service) CompletePayment(ctx context.Context, event Webhook, payload js
 		return PaymentResult{}, ErrPaymentMismatch
 	}
 	return s.repository.CompletePayment(ctx, event, payload)
+}
+func (s *Service) BillingProfile(ctx context.Context, userID uuid.UUID) (BillingProfile, error) {
+	return s.repository.BillingProfile(ctx, userID)
+}
+func (s *Service) UpdateBillingProfile(ctx context.Context, userID uuid.UUID, input BillingProfile) (BillingProfile, error) {
+	input.LegalName = strings.TrimSpace(input.LegalName)
+	input.TaxID = strings.TrimSpace(input.TaxID)
+	input.CountryCode = strings.ToUpper(strings.TrimSpace(input.CountryCode))
+	if len(input.LegalName) > 255 || len(input.TaxID) > 128 || (input.CountryCode != "" && len(input.CountryCode) != 2) || len(input.Address) > 8192 {
+		return BillingProfile{}, ErrBillingProfile
+	}
+	return s.repository.UpdateBillingProfile(ctx, userID, input)
 }

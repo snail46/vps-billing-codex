@@ -50,3 +50,5 @@ Runman Gateway 默认在容器内监听 `RUNMAN_GATEWAY_ADDRESS=:9090`，宿主�
 Worker 每秒运行恢复扫描：2 分钟无 heartbeat 的 Operation 会按 retry budget 重排队；90 秒无 Agent heartbeat 的 Runman Node 标记 offline；终态 Operation 遗留的过期 Reservation 会原子释放；Instance observed state 会从 Provider 周期刷新。Redis 重启期间 Outbox 保持 pending，恢复后继续发布；Worker 崩溃遗留的 Redis Stream pending entry 会由其他 consumer 接管。生产告警应设置在这些恢复阈值之前，避免把自动恢复当作正常稳态。
 
 备份、恢复、升级和回滚步骤见 `docs/21-RELEASE-RUNBOOK.md`。`deploy/scripts/backup.sh` 生成 AES-256-CBC/PBKDF2 加密的 PostgreSQL 与配置备份并写 SHA-256；`restore.sh --confirm` 校验后恢复数据库；`verify-release.sh` 检查 health、安全响应头和内部 Metrics。生产禁止运行 down migration，回滚优先使用上一不可变镜像；需要回退 schema/data 时恢复升级前备份到新数据库。
+
+V2 deployment applies migrations 000013–000019 before application rollout. Run only one migration job, keep at least one Worker, and verify Provider health, pending/dead-letter Outbox counts, usage lag and Ledger balance before enabling sales. V1 rows receive backward-compatible defaults. Detailed V2 recovery checks and failure expectations are in `docs/23-V2-OPERATIONS-AND-FAILURE-MATRIX.md`.

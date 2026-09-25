@@ -36,9 +36,37 @@ func (h *Handler) Register(router chi.Router) {
 	router.With(h.identity.RequireUser).Post("/api/v1/orders", h.createOrder)
 	router.With(h.identity.RequireUser).Get("/api/v1/invoices", h.listInvoices)
 	router.With(h.identity.RequireUser).Get("/api/v1/wallet", h.wallet)
+	router.With(h.identity.RequireUser).Get("/api/v1/billing-profile", h.billingProfile)
+	router.With(h.identity.RequireUser).Put("/api/v1/billing-profile", h.updateBillingProfile)
 	if h.fakePaymentEnabled {
 		router.Post("/api/v1/webhooks/payments/fake", h.fakeWebhook)
 	}
+}
+
+func (h *Handler) billingProfile(w http.ResponseWriter, r *http.Request) {
+	user, _ := identityhttp.UserFromContext(r.Context())
+	item, err := h.service.BillingProfile(r.Context(), user.ID)
+	if err != nil {
+		h.commerceError(w, r, err)
+		return
+	}
+	response.JSON(w, r, http.StatusOK, item)
+}
+func (h *Handler) updateBillingProfile(w http.ResponseWriter, r *http.Request) {
+	user, _ := identityhttp.UserFromContext(r.Context())
+	var input commerce.BillingProfile
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<10))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&input); err != nil {
+		response.Error(w, r, http.StatusBadRequest, "REQUEST_INVALID", "errors.requestInvalid")
+		return
+	}
+	item, err := h.service.UpdateBillingProfile(r.Context(), user.ID, input)
+	if err != nil {
+		h.commerceError(w, r, err)
+		return
+	}
+	response.JSON(w, r, http.StatusOK, item)
 }
 
 func (h *Handler) listProducts(w http.ResponseWriter, r *http.Request) {
@@ -57,8 +85,9 @@ func (h *Handler) createOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var input struct {
-		PlanID   uuid.UUID `json:"plan_id"`
-		Quantity int32     `json:"quantity"`
+		PlanID        uuid.UUID `json:"plan_id"`
+		Quantity      int32     `json:"quantity"`
+		PromotionCode string    `json:"promotion_code"`
 	}
 	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<10))
 	decoder.DisallowUnknownFields()
@@ -66,7 +95,7 @@ func (h *Handler) createOrder(w http.ResponseWriter, r *http.Request) {
 		response.Error(w, r, http.StatusBadRequest, "REQUEST_INVALID", "errors.requestInvalid")
 		return
 	}
-	order, err := h.service.CreateOrder(r.Context(), user.ID, input.PlanID, input.Quantity, r.Header.Get("Idempotency-Key"))
+	order, err := h.service.CreateOrderWithPromotion(r.Context(), user.ID, input.PlanID, input.Quantity, r.Header.Get("Idempotency-Key"), input.PromotionCode)
 	if err != nil {
 		h.commerceError(w, r, err)
 		return
@@ -153,6 +182,10 @@ func (h *Handler) commerceError(w http.ResponseWriter, r *http.Request, err erro
 		response.Error(w, r, http.StatusNotFound, "SUBSCRIPTION_NOT_FOUND", "errors.subscriptionNotFound")
 	case errors.Is(err, commerce.ErrSubscriptionState):
 		response.Error(w, r, http.StatusConflict, "SUBSCRIPTION_STATE_INVALID", "errors.subscriptionStateInvalid")
+	case errors.Is(err, commerce.ErrPromotionInvalid):
+		response.Error(w, r, http.StatusUnprocessableEntity, "PROMOTION_INVALID", "errors.promotionInvalid")
+	case errors.Is(err, commerce.ErrBillingProfile):
+		response.Error(w, r, http.StatusUnprocessableEntity, "BILLING_PROFILE_INVALID", "errors.requestInvalid")
 	default:
 		response.Error(w, r, http.StatusInternalServerError, "INTERNAL_ERROR", "errors.internal")
 	}

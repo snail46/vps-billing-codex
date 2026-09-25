@@ -300,7 +300,7 @@ func (q *Queries) CreateNode(ctx context.Context, arg CreateNodeParams) (Node, e
 const createNodeGroup = `-- name: CreateNodeGroup :one
 INSERT INTO node_groups (id, name, region, status)
 VALUES ($1, $2, $3, $4)
-RETURNING id, name, region, status, created_at, updated_at
+RETURNING id, name, region, status, created_at, updated_at, placement_policy
 `
 
 type CreateNodeGroupParams struct {
@@ -325,6 +325,7 @@ func (q *Queries) CreateNodeGroup(ctx context.Context, arg CreateNodeGroupParams
 		&i.Status,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.PlacementPolicy,
 	)
 	return i, err
 }
@@ -470,7 +471,7 @@ func (q *Queries) ListInfrastructureProviders(ctx context.Context) ([]Provider, 
 }
 
 const listNodeGroups = `-- name: ListNodeGroups :many
-SELECT id, name, region, status, created_at, updated_at FROM node_groups ORDER BY region, name, id
+SELECT id, name, region, status, created_at, updated_at, placement_policy FROM node_groups ORDER BY region, name, id
 `
 
 func (q *Queries) ListNodeGroups(ctx context.Context) ([]NodeGroup, error) {
@@ -489,6 +490,7 @@ func (q *Queries) ListNodeGroups(ctx context.Context) ([]NodeGroup, error) {
 			&i.Status,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.PlacementPolicy,
 		); err != nil {
 			return nil, err
 		}
@@ -668,7 +670,7 @@ WHERE nodes.node_group_id = $1
   AND nodes.ipv4_total - nodes.ipv4_allocated - nodes.ipv4_reserved >= $6
   AND nodes.ipv6_total - nodes.ipv6_allocated - nodes.ipv6_reserved >= $7
   AND nodes.nat_port_total - nodes.nat_port_allocated - nodes.nat_port_reserved >= $8
-ORDER BY GREATEST(
+ORDER BY CASE WHEN node_groups.placement_policy = 'pack' THEN -1 ELSE 1 END * GREATEST(
     COALESCE((nodes.cpu_allocated + nodes.cpu_reserved + $3) / NULLIF(nodes.cpu_total, 0), 0),
     COALESCE((nodes.memory_allocated_mb + nodes.memory_reserved_mb + $4)::numeric / NULLIF(nodes.memory_total_mb, 0), 0),
     COALESCE((nodes.disk_allocated_gb + nodes.disk_reserved_gb + $5)::numeric / NULLIF(nodes.disk_total_gb, 0), 0)

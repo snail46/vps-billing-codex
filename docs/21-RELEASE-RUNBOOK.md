@@ -31,3 +31,5 @@ Quarterly, restore into an isolated empty environment with `BACKUP_SET`, an empt
 ## Alerts
 
 Alert before automatic recovery thresholds: Operation heartbeat age approaching 120 seconds and Agent heartbeat age approaching 90 seconds. Also alert on pending outbox growth, failed Operations, Provider/Node offline state, metrics collection failure, HTTP 5xx rate, low capacity, backup failure, and restore-drill failure.
+
+For V2 also alert on `outbox_events.status='dead_letter'`, usage collection lag, overdue open usage periods, capability drift and expired Operation deadlines. Before rollout capture counts and Ledger balance; after migrations 13–19 and application rollout compare them, run one controlled dead-letter replay, and verify a restored pre-upgrade backup in an isolated database.

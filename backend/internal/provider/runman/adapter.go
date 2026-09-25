@@ -54,7 +54,7 @@ func (a *Adapter) Health(ctx context.Context) (*providercontract.Health, error) 
 	return &providercontract.Health{Status: status, Version: "runman-v1", CheckedAt: time.Now().UTC()}, nil
 }
 func (a *Adapter) Capabilities(context.Context) (*providercontract.Capabilities, error) {
-	return &providercontract.Capabilities{CreateInstance: true, DeleteInstance: true, Start: true, Stop: true, Restart: true, Reinstall: true, ResetPassword: true, Traffic: true, Metrics: true, NAT: true, IPv4: true, IPv6: true, SupportedRuntimes: []string{"podman", "cloudhv", "incus"}}, nil
+	return &providercontract.Capabilities{CreateInstance: true, DeleteInstance: true, Start: true, Stop: true, Restart: true, Reinstall: true, ResetPassword: true, Traffic: true, Metrics: true, NAT: true, SharedIPv4: true, PortForward: true, TrafficMeter: true, IPv4: true, IPv6: true, SupportedRuntimes: []string{"podman", "cloudhv", "incus"}}, nil
 }
 func (a *Adapter) ListImages(ctx context.Context, node string) ([]providercontract.Image, error) {
 	id, e := parse(node)

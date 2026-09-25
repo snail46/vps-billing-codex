@@ -46,6 +46,79 @@ type AdminTotpSecret struct {
 	VerifiedAt pgtype.Timestamptz `json:"verified_at"`
 }
 
+type AgentCommand struct {
+	ID             uuid.UUID          `json:"id"`
+	NodeID         uuid.UUID          `json:"node_id"`
+	OperationID    *uuid.UUID         `json:"operation_id"`
+	IdempotencyKey string             `json:"idempotency_key"`
+	CommandType    string             `json:"command_type"`
+	Payload        []byte             `json:"payload"`
+	Status         string             `json:"status"`
+	Result         []byte             `json:"result"`
+	ErrorMessage   pgtype.Text        `json:"error_message"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	DispatchedAt   pgtype.Timestamptz `json:"dispatched_at"`
+	CompletedAt    pgtype.Timestamptz `json:"completed_at"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+}
+
+type AgentConnection struct {
+	NodeID          uuid.UUID          `json:"node_id"`
+	ConnectionID    uuid.UUID          `json:"connection_id"`
+	Status          string             `json:"status"`
+	RemoteAddress   pgtype.Text        `json:"remote_address"`
+	AgentVersion    pgtype.Text        `json:"agent_version"`
+	ConnectedAt     pgtype.Timestamptz `json:"connected_at"`
+	DisconnectedAt  pgtype.Timestamptz `json:"disconnected_at"`
+	LastHeartbeatAt pgtype.Timestamptz `json:"last_heartbeat_at"`
+}
+
+type AgentImage struct {
+	NodeID    uuid.UUID          `json:"node_id"`
+	ImageID   string             `json:"image_id"`
+	Name      string             `json:"name"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+}
+
+type AgentMessage struct {
+	MessageID  string             `json:"message_id"`
+	NodeID     uuid.UUID          `json:"node_id"`
+	ReceivedAt pgtype.Timestamptz `json:"received_at"`
+}
+
+type AgentPortForward struct {
+	NodeID      uuid.UUID          `json:"node_id"`
+	InstanceID  uuid.UUID          `json:"instance_id"`
+	Protocol    string             `json:"protocol"`
+	HostPort    int32              `json:"host_port"`
+	GuestPort   int32              `json:"guest_port"`
+	Description string             `json:"description"`
+	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+}
+
+type AgentToken struct {
+	ID         uuid.UUID          `json:"id"`
+	NodeID     uuid.UUID          `json:"node_id"`
+	TokenHash  []byte             `json:"token_hash"`
+	Status     string             `json:"status"`
+	CreatedAt  pgtype.Timestamptz `json:"created_at"`
+	LastUsedAt pgtype.Timestamptz `json:"last_used_at"`
+}
+
+type AgentVmState struct {
+	NodeID            uuid.UUID          `json:"node_id"`
+	InstanceID        uuid.UUID          `json:"instance_id"`
+	Status            string             `json:"status"`
+	CpuPercent        float64            `json:"cpu_percent"`
+	RamUsedMb         int64              `json:"ram_used_mb"`
+	TrafficInBytes    int64              `json:"traffic_in_bytes"`
+	TrafficOutBytes   int64              `json:"traffic_out_bytes"`
+	MonthlyTrafficIn  int64              `json:"monthly_traffic_in"`
+	MonthlyTrafficOut int64              `json:"monthly_traffic_out"`
+	Ips               []byte             `json:"ips"`
+	ObservedAt        pgtype.Timestamptz `json:"observed_at"`
+}
+
 type AuditEvent struct {
 	ID           uuid.UUID          `json:"id"`
 	ActorType    string             `json:"actor_type"`
@@ -60,6 +133,15 @@ type AuditEvent struct {
 	RequestID    pgtype.Text        `json:"request_id"`
 	TraceID      pgtype.Text        `json:"trace_id"`
 	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+}
+
+type BillingProfile struct {
+	UserID      uuid.UUID          `json:"user_id"`
+	LegalName   string             `json:"legal_name"`
+	TaxID       string             `json:"tax_id"`
+	CountryCode string             `json:"country_code"`
+	Address     []byte             `json:"address"`
+	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
 }
 
 type Instance struct {
@@ -98,18 +180,19 @@ type InstanceNetwork struct {
 }
 
 type Invoice struct {
-	ID             uuid.UUID          `json:"id"`
-	InvoiceNo      string             `json:"invoice_no"`
-	UserID         uuid.UUID          `json:"user_id"`
-	SubscriptionID *uuid.UUID         `json:"subscription_id"`
-	OrderID        *uuid.UUID         `json:"order_id"`
-	Status         string             `json:"status"`
-	AmountMinor    int64              `json:"amount_minor"`
-	Currency       string             `json:"currency"`
-	DueAt          pgtype.Timestamptz `json:"due_at"`
-	PaidAt         pgtype.Timestamptz `json:"paid_at"`
-	CreatedAt      pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+	ID                     uuid.UUID          `json:"id"`
+	InvoiceNo              string             `json:"invoice_no"`
+	UserID                 uuid.UUID          `json:"user_id"`
+	SubscriptionID         *uuid.UUID         `json:"subscription_id"`
+	OrderID                *uuid.UUID         `json:"order_id"`
+	Status                 string             `json:"status"`
+	AmountMinor            int64              `json:"amount_minor"`
+	Currency               string             `json:"currency"`
+	DueAt                  pgtype.Timestamptz `json:"due_at"`
+	PaidAt                 pgtype.Timestamptz `json:"paid_at"`
+	CreatedAt              pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt              pgtype.Timestamptz `json:"updated_at"`
+	BillingProfileSnapshot []byte             `json:"billing_profile_snapshot"`
 }
 
 type InvoiceItem struct {
@@ -177,12 +260,13 @@ type Node struct {
 }
 
 type NodeGroup struct {
-	ID        uuid.UUID          `json:"id"`
-	Name      string             `json:"name"`
-	Region    string             `json:"region"`
-	Status    string             `json:"status"`
-	CreatedAt pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+	ID              uuid.UUID          `json:"id"`
+	Name            string             `json:"name"`
+	Region          string             `json:"region"`
+	Status          string             `json:"status"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
+	PlacementPolicy string             `json:"placement_policy"`
 }
 
 type Notification struct {
@@ -224,6 +308,21 @@ type Operation struct {
 	ActorAdminID        *uuid.UUID         `json:"actor_admin_id"`
 	NextAttemptAt       pgtype.Timestamptz `json:"next_attempt_at"`
 	HeartbeatAt         pgtype.Timestamptz `json:"heartbeat_at"`
+	Input               []byte             `json:"input"`
+	DeadlineAt          pgtype.Timestamptz `json:"deadline_at"`
+	ParentOperationID   *uuid.UUID         `json:"parent_operation_id"`
+}
+
+type OperationAttempt struct {
+	ID           uuid.UUID          `json:"id"`
+	OperationID  uuid.UUID          `json:"operation_id"`
+	Attempt      int32              `json:"attempt"`
+	Status       string             `json:"status"`
+	ErrorCode    pgtype.Text        `json:"error_code"`
+	ErrorMessage pgtype.Text        `json:"error_message"`
+	WorkerID     pgtype.Text        `json:"worker_id"`
+	StartedAt    pgtype.Timestamptz `json:"started_at"`
+	FinishedAt   pgtype.Timestamptz `json:"finished_at"`
 }
 
 type OperationStep struct {
@@ -244,20 +343,21 @@ type OperationStep struct {
 }
 
 type Order struct {
-	ID             uuid.UUID          `json:"id"`
-	OrderNo        string             `json:"order_no"`
-	UserID         uuid.UUID          `json:"user_id"`
-	Status         string             `json:"status"`
-	SubtotalMinor  int64              `json:"subtotal_minor"`
-	DiscountMinor  int64              `json:"discount_minor"`
-	TotalMinor     int64              `json:"total_minor"`
-	Currency       string             `json:"currency"`
-	PaidAt         pgtype.Timestamptz `json:"paid_at"`
-	CreatedAt      pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
-	IdempotencyKey pgtype.Text        `json:"idempotency_key"`
-	Kind           string             `json:"kind"`
-	SubscriptionID *uuid.UUID         `json:"subscription_id"`
+	ID                uuid.UUID          `json:"id"`
+	OrderNo           string             `json:"order_no"`
+	UserID            uuid.UUID          `json:"user_id"`
+	Status            string             `json:"status"`
+	SubtotalMinor     int64              `json:"subtotal_minor"`
+	DiscountMinor     int64              `json:"discount_minor"`
+	TotalMinor        int64              `json:"total_minor"`
+	Currency          string             `json:"currency"`
+	PaidAt            pgtype.Timestamptz `json:"paid_at"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
+	IdempotencyKey    pgtype.Text        `json:"idempotency_key"`
+	Kind              string             `json:"kind"`
+	SubscriptionID    *uuid.UUID         `json:"subscription_id"`
+	PromotionSnapshot []byte             `json:"promotion_snapshot"`
 }
 
 type OrderItem struct {
@@ -274,16 +374,20 @@ type OrderItem struct {
 }
 
 type OutboxEvent struct {
-	ID            uuid.UUID          `json:"id"`
-	EventType     string             `json:"event_type"`
-	AggregateType string             `json:"aggregate_type"`
-	AggregateID   uuid.UUID          `json:"aggregate_id"`
-	Payload       []byte             `json:"payload"`
-	Status        string             `json:"status"`
-	Attempts      int32              `json:"attempts"`
-	NextAttemptAt pgtype.Timestamptz `json:"next_attempt_at"`
-	CreatedAt     pgtype.Timestamptz `json:"created_at"`
-	PublishedAt   pgtype.Timestamptz `json:"published_at"`
+	ID             uuid.UUID          `json:"id"`
+	EventType      string             `json:"event_type"`
+	AggregateType  string             `json:"aggregate_type"`
+	AggregateID    uuid.UUID          `json:"aggregate_id"`
+	Payload        []byte             `json:"payload"`
+	Status         string             `json:"status"`
+	Attempts       int32              `json:"attempts"`
+	NextAttemptAt  pgtype.Timestamptz `json:"next_attempt_at"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	PublishedAt    pgtype.Timestamptz `json:"published_at"`
+	LastError      pgtype.Text        `json:"last_error"`
+	DeadLetteredAt pgtype.Timestamptz `json:"dead_lettered_at"`
+	ReplayedAt     pgtype.Timestamptz `json:"replayed_at"`
+	ReplayedBy     *uuid.UUID         `json:"replayed_by"`
 }
 
 type Payment struct {
@@ -300,6 +404,7 @@ type Payment struct {
 	PaidAt           pgtype.Timestamptz `json:"paid_at"`
 	CreatedAt        pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
+	RefundedMinor    int64              `json:"refunded_minor"`
 }
 
 type PaymentWebhookReceipt struct {
@@ -317,28 +422,32 @@ type Permission struct {
 }
 
 type Plan struct {
-	ID             uuid.UUID          `json:"id"`
-	ProductID      uuid.UUID          `json:"product_id"`
-	NodeGroupID    *uuid.UUID         `json:"node_group_id"`
-	Slug           string             `json:"slug"`
-	NameI18n       []byte             `json:"name_i18n"`
-	Status         string             `json:"status"`
-	CpuCores       float64            `json:"cpu_cores"`
-	MemoryMb       int32              `json:"memory_mb"`
-	DiskGb         int32              `json:"disk_gb"`
-	TrafficGb      pgtype.Int8        `json:"traffic_gb"`
-	BandwidthMbps  pgtype.Int4        `json:"bandwidth_mbps"`
-	Ipv4Count      int32              `json:"ipv4_count"`
-	Ipv6Count      int32              `json:"ipv6_count"`
-	NatPortCount   int32              `json:"nat_port_count"`
-	Virtualization string             `json:"virtualization"`
-	BillingCycle   string             `json:"billing_cycle"`
-	PriceMinor     int64              `json:"price_minor"`
-	Currency       string             `json:"currency"`
-	StockMode      string             `json:"stock_mode"`
-	CreatedAt      pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
-	DefaultImageID string             `json:"default_image_id"`
+	ID                       uuid.UUID          `json:"id"`
+	ProductID                uuid.UUID          `json:"product_id"`
+	NodeGroupID              *uuid.UUID         `json:"node_group_id"`
+	Slug                     string             `json:"slug"`
+	NameI18n                 []byte             `json:"name_i18n"`
+	Status                   string             `json:"status"`
+	CpuCores                 float64            `json:"cpu_cores"`
+	MemoryMb                 int32              `json:"memory_mb"`
+	DiskGb                   int32              `json:"disk_gb"`
+	TrafficGb                pgtype.Int8        `json:"traffic_gb"`
+	BandwidthMbps            pgtype.Int4        `json:"bandwidth_mbps"`
+	Ipv4Count                int32              `json:"ipv4_count"`
+	Ipv6Count                int32              `json:"ipv6_count"`
+	NatPortCount             int32              `json:"nat_port_count"`
+	Virtualization           string             `json:"virtualization"`
+	BillingCycle             string             `json:"billing_cycle"`
+	PriceMinor               int64              `json:"price_minor"`
+	Currency                 string             `json:"currency"`
+	StockMode                string             `json:"stock_mode"`
+	CreatedAt                pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt                pgtype.Timestamptz `json:"updated_at"`
+	DefaultImageID           string             `json:"default_image_id"`
+	StockQuantity            pgtype.Int4        `json:"stock_quantity"`
+	SetupFeeMinor            int64              `json:"setup_fee_minor"`
+	TrafficOveragePriceMinor int64              `json:"traffic_overage_price_minor"`
+	Metadata                 []byte             `json:"metadata"`
 }
 
 type PortForward struct {
@@ -353,6 +462,8 @@ type PortForward struct {
 	ProviderMappingID pgtype.Text        `json:"provider_mapping_id"`
 	CreatedAt         pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
+	OperationID       *uuid.UUID         `json:"operation_id"`
+	ErrorCode         pgtype.Text        `json:"error_code"`
 }
 
 type Product struct {
@@ -364,6 +475,33 @@ type Product struct {
 	SortOrder       int32              `json:"sort_order"`
 	CreatedAt       pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
+	ProductType     string             `json:"product_type"`
+	Featured        bool               `json:"featured"`
+}
+
+type Promotion struct {
+	ID              uuid.UUID          `json:"id"`
+	Code            string             `json:"code"`
+	Status          string             `json:"status"`
+	DiscountType    string             `json:"discount_type"`
+	DiscountValue   int64              `json:"discount_value"`
+	Currency        pgtype.Text        `json:"currency"`
+	StartsAt        pgtype.Timestamptz `json:"starts_at"`
+	EndsAt          pgtype.Timestamptz `json:"ends_at"`
+	MaxRedemptions  pgtype.Int4        `json:"max_redemptions"`
+	RedemptionCount int32              `json:"redemption_count"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
+}
+
+type PromotionRedemption struct {
+	ID            uuid.UUID          `json:"id"`
+	PromotionID   uuid.UUID          `json:"promotion_id"`
+	OrderID       uuid.UUID          `json:"order_id"`
+	UserID        uuid.UUID          `json:"user_id"`
+	DiscountMinor int64              `json:"discount_minor"`
+	Snapshot      []byte             `json:"snapshot"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
 }
 
 type Provider struct {
@@ -379,6 +517,32 @@ type Provider struct {
 	LastHealthCheckAt pgtype.Timestamptz `json:"last_health_check_at"`
 	CreatedAt         pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
+}
+
+type ProviderHealthCheck struct {
+	ID           uuid.UUID          `json:"id"`
+	ProviderID   uuid.UUID          `json:"provider_id"`
+	Status       string             `json:"status"`
+	Version      pgtype.Text        `json:"version"`
+	LatencyMs    int32              `json:"latency_ms"`
+	Capabilities []byte             `json:"capabilities"`
+	Details      []byte             `json:"details"`
+	ErrorCode    pgtype.Text        `json:"error_code"`
+	CheckedAt    pgtype.Timestamptz `json:"checked_at"`
+	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+}
+
+type Refund struct {
+	ID                  uuid.UUID          `json:"id"`
+	PaymentID           uuid.UUID          `json:"payment_id"`
+	AmountMinor         int64              `json:"amount_minor"`
+	Currency            string             `json:"currency"`
+	Reason              string             `json:"reason"`
+	Status              string             `json:"status"`
+	IdempotencyKey      string             `json:"idempotency_key"`
+	LedgerTransactionID uuid.UUID          `json:"ledger_transaction_id"`
+	CreatedBy           *uuid.UUID         `json:"created_by"`
+	CreatedAt           pgtype.Timestamptz `json:"created_at"`
 }
 
 type ResourceReservation struct {
@@ -407,6 +571,20 @@ type Role struct {
 type RolePermission struct {
 	RoleID       uuid.UUID `json:"role_id"`
 	PermissionID uuid.UUID `json:"permission_id"`
+}
+
+type SchedulerDecision struct {
+	ID                   uuid.UUID          `json:"id"`
+	OperationID          uuid.UUID          `json:"operation_id"`
+	NodeGroupID          uuid.UUID          `json:"node_group_id"`
+	SelectedNodeID       *uuid.UUID         `json:"selected_node_id"`
+	PlacementPolicy      string             `json:"placement_policy"`
+	CandidateCount       int32              `json:"candidate_count"`
+	RequestedResources   []byte             `json:"requested_resources"`
+	RequiredCapabilities []byte             `json:"required_capabilities"`
+	SelectedScore        pgtype.Numeric     `json:"selected_score"`
+	Result               string             `json:"result"`
+	CreatedAt            pgtype.Timestamptz `json:"created_at"`
 }
 
 type Subscription struct {
@@ -469,6 +647,46 @@ type TrafficUsage struct {
 	TxBytes     int64              `json:"tx_bytes"`
 	Source      string             `json:"source"`
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+}
+
+type UsageBillingPeriod struct {
+	ID                     uuid.UUID          `json:"id"`
+	SubscriptionID         uuid.UUID          `json:"subscription_id"`
+	InstanceID             uuid.UUID          `json:"instance_id"`
+	PeriodStart            pgtype.Timestamptz `json:"period_start"`
+	PeriodEnd              pgtype.Timestamptz `json:"period_end"`
+	IncludedBytes          int64              `json:"included_bytes"`
+	UsedBytes              int64              `json:"used_bytes"`
+	OverageBytes           int64              `json:"overage_bytes"`
+	OveragePriceMinorPerGb int64              `json:"overage_price_minor_per_gb"`
+	AmountMinor            int64              `json:"amount_minor"`
+	Currency               string             `json:"currency"`
+	Status                 string             `json:"status"`
+	InvoiceID              *uuid.UUID         `json:"invoice_id"`
+	CreatedAt              pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt              pgtype.Timestamptz `json:"updated_at"`
+}
+
+type UsageCharge struct {
+	ID                   uuid.UUID          `json:"id"`
+	UsageBillingPeriodID uuid.UUID          `json:"usage_billing_period_id"`
+	InvoiceID            uuid.UUID          `json:"invoice_id"`
+	LedgerTransactionID  uuid.UUID          `json:"ledger_transaction_id"`
+	AmountMinor          int64              `json:"amount_minor"`
+	Currency             string             `json:"currency"`
+	CreatedAt            pgtype.Timestamptz `json:"created_at"`
+}
+
+type UsageSample struct {
+	ID            uuid.UUID          `json:"id"`
+	ProviderID    uuid.UUID          `json:"provider_id"`
+	InstanceID    uuid.UUID          `json:"instance_id"`
+	SourceEventID string             `json:"source_event_id"`
+	PeriodStart   pgtype.Timestamptz `json:"period_start"`
+	PeriodEnd     pgtype.Timestamptz `json:"period_end"`
+	RxBytes       int64              `json:"rx_bytes"`
+	TxBytes       int64              `json:"tx_bytes"`
+	CollectedAt   pgtype.Timestamptz `json:"collected_at"`
 }
 
 type User struct {

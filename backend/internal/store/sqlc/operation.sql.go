@@ -13,7 +13,7 @@ import (
 )
 
 const claimDueOperationRetries = `-- name: ClaimDueOperationRetries :many
-SELECT id, type, resource_type, resource_id, status, phase, progress, message_key, provider_id, provider_operation_id, idempotency_key, retryable, retry_count, max_retries, error_code, error_message, trace_id, started_at, finished_at, created_at, updated_at, user_id, actor_admin_id, next_attempt_at, heartbeat_at FROM operations
+SELECT id, type, resource_type, resource_id, status, phase, progress, message_key, provider_id, provider_operation_id, idempotency_key, retryable, retry_count, max_retries, error_code, error_message, trace_id, started_at, finished_at, created_at, updated_at, user_id, actor_admin_id, next_attempt_at, heartbeat_at, input, deadline_at, parent_operation_id FROM operations
 WHERE status = 'retrying' AND next_attempt_at <= now()
 ORDER BY next_attempt_at, created_at
 FOR UPDATE SKIP LOCKED
@@ -55,6 +55,9 @@ func (q *Queries) ClaimDueOperationRetries(ctx context.Context, limit int32) ([]
 			&i.ActorAdminID,
 			&i.NextAttemptAt,
 			&i.HeartbeatAt,
+			&i.Input,
+			&i.DeadlineAt,
+			&i.ParentOperationID,
 		); err != nil {
 			return nil, err
 		}
@@ -71,7 +74,8 @@ UPDATE operations
 SET status = 'running', phase = COALESCE(phase, 'starting'), started_at = COALESCE(started_at, now()),
     heartbeat_at = now(), updated_at = now()
 WHERE id = $1 AND status = 'queued' AND next_attempt_at <= now()
-RETURNING id, type, resource_type, resource_id, status, phase, progress, message_key, provider_id, provider_operation_id, idempotency_key, retryable, retry_count, max_retries, error_code, error_message, trace_id, started_at, finished_at, created_at, updated_at, user_id, actor_admin_id, next_attempt_at, heartbeat_at
+  AND (deadline_at IS NULL OR deadline_at > now())
+RETURNING id, type, resource_type, resource_id, status, phase, progress, message_key, provider_id, provider_operation_id, idempotency_key, retryable, retry_count, max_retries, error_code, error_message, trace_id, started_at, finished_at, created_at, updated_at, user_id, actor_admin_id, next_attempt_at, heartbeat_at, input, deadline_at, parent_operation_id
 `
 
 func (q *Queries) ClaimOperation(ctx context.Context, id uuid.UUID) (Operation, error) {
@@ -103,6 +107,9 @@ func (q *Queries) ClaimOperation(ctx context.Context, id uuid.UUID) (Operation, 
 		&i.ActorAdminID,
 		&i.NextAttemptAt,
 		&i.HeartbeatAt,
+		&i.Input,
+		&i.DeadlineAt,
+		&i.ParentOperationID,
 	)
 	return i, err
 }
@@ -113,7 +120,7 @@ SET status = $2, phase = $3, progress = $4, message_key = $5,
     retryable = false, error_code = $6, error_message = $7,
     heartbeat_at = now(), finished_at = now(), updated_at = now()
 WHERE id = $1 AND status NOT IN ('succeeded', 'failed', 'cancelled')
-RETURNING id, type, resource_type, resource_id, status, phase, progress, message_key, provider_id, provider_operation_id, idempotency_key, retryable, retry_count, max_retries, error_code, error_message, trace_id, started_at, finished_at, created_at, updated_at, user_id, actor_admin_id, next_attempt_at, heartbeat_at
+RETURNING id, type, resource_type, resource_id, status, phase, progress, message_key, provider_id, provider_operation_id, idempotency_key, retryable, retry_count, max_retries, error_code, error_message, trace_id, started_at, finished_at, created_at, updated_at, user_id, actor_admin_id, next_attempt_at, heartbeat_at, input, deadline_at, parent_operation_id
 `
 
 type CompleteOperationParams struct {
@@ -163,6 +170,9 @@ func (q *Queries) CompleteOperation(ctx context.Context, arg CompleteOperationPa
 		&i.ActorAdminID,
 		&i.NextAttemptAt,
 		&i.HeartbeatAt,
+		&i.Input,
+		&i.DeadlineAt,
+		&i.ParentOperationID,
 	)
 	return i, err
 }
@@ -170,23 +180,27 @@ func (q *Queries) CompleteOperation(ctx context.Context, arg CompleteOperationPa
 const createOperation = `-- name: CreateOperation :one
 INSERT INTO operations (
   id, type, resource_type, resource_id, status, phase, progress, message_key,
-  idempotency_key, retryable, retry_count, max_retries, trace_id, user_id, actor_admin_id, next_attempt_at
+  idempotency_key, retryable, retry_count, max_retries, trace_id, user_id, actor_admin_id,
+  input, deadline_at, parent_operation_id, next_attempt_at
 )
-VALUES ($1, $2, $3, $4, 'queued', 'queued', 0, $5, $6, false, 0, $7, $8, $9, $10, now())
-RETURNING id, type, resource_type, resource_id, status, phase, progress, message_key, provider_id, provider_operation_id, idempotency_key, retryable, retry_count, max_retries, error_code, error_message, trace_id, started_at, finished_at, created_at, updated_at, user_id, actor_admin_id, next_attempt_at, heartbeat_at
+VALUES ($1, $2, $3, $4, 'queued', 'queued', 0, $5, $6, false, 0, $7, $8, $9, $10, $11, $12, $13, now())
+RETURNING id, type, resource_type, resource_id, status, phase, progress, message_key, provider_id, provider_operation_id, idempotency_key, retryable, retry_count, max_retries, error_code, error_message, trace_id, started_at, finished_at, created_at, updated_at, user_id, actor_admin_id, next_attempt_at, heartbeat_at, input, deadline_at, parent_operation_id
 `
 
 type CreateOperationParams struct {
-	ID             uuid.UUID   `json:"id"`
-	Type           string      `json:"type"`
-	ResourceType   string      `json:"resource_type"`
-	ResourceID     uuid.UUID   `json:"resource_id"`
-	MessageKey     pgtype.Text `json:"message_key"`
-	IdempotencyKey string      `json:"idempotency_key"`
-	MaxRetries     int32       `json:"max_retries"`
-	TraceID        string      `json:"trace_id"`
-	UserID         *uuid.UUID  `json:"user_id"`
-	ActorAdminID   *uuid.UUID  `json:"actor_admin_id"`
+	ID                uuid.UUID          `json:"id"`
+	Type              string             `json:"type"`
+	ResourceType      string             `json:"resource_type"`
+	ResourceID        uuid.UUID          `json:"resource_id"`
+	MessageKey        pgtype.Text        `json:"message_key"`
+	IdempotencyKey    string             `json:"idempotency_key"`
+	MaxRetries        int32              `json:"max_retries"`
+	TraceID           string             `json:"trace_id"`
+	UserID            *uuid.UUID         `json:"user_id"`
+	ActorAdminID      *uuid.UUID         `json:"actor_admin_id"`
+	Input             []byte             `json:"input"`
+	DeadlineAt        pgtype.Timestamptz `json:"deadline_at"`
+	ParentOperationID *uuid.UUID         `json:"parent_operation_id"`
 }
 
 func (q *Queries) CreateOperation(ctx context.Context, arg CreateOperationParams) (Operation, error) {
@@ -201,6 +215,9 @@ func (q *Queries) CreateOperation(ctx context.Context, arg CreateOperationParams
 		arg.TraceID,
 		arg.UserID,
 		arg.ActorAdminID,
+		arg.Input,
+		arg.DeadlineAt,
+		arg.ParentOperationID,
 	)
 	var i Operation
 	err := row.Scan(
@@ -229,6 +246,9 @@ func (q *Queries) CreateOperation(ctx context.Context, arg CreateOperationParams
 		&i.ActorAdminID,
 		&i.NextAttemptAt,
 		&i.HeartbeatAt,
+		&i.Input,
+		&i.DeadlineAt,
+		&i.ParentOperationID,
 	)
 	return i, err
 }
@@ -274,7 +294,7 @@ func (q *Queries) CreateOperationStep(ctx context.Context, arg CreateOperationSt
 }
 
 const getOperationByID = `-- name: GetOperationByID :one
-SELECT id, type, resource_type, resource_id, status, phase, progress, message_key, provider_id, provider_operation_id, idempotency_key, retryable, retry_count, max_retries, error_code, error_message, trace_id, started_at, finished_at, created_at, updated_at, user_id, actor_admin_id, next_attempt_at, heartbeat_at FROM operations WHERE id = $1
+SELECT id, type, resource_type, resource_id, status, phase, progress, message_key, provider_id, provider_operation_id, idempotency_key, retryable, retry_count, max_retries, error_code, error_message, trace_id, started_at, finished_at, created_at, updated_at, user_id, actor_admin_id, next_attempt_at, heartbeat_at, input, deadline_at, parent_operation_id FROM operations WHERE id = $1
 `
 
 func (q *Queries) GetOperationByID(ctx context.Context, id uuid.UUID) (Operation, error) {
@@ -306,12 +326,15 @@ func (q *Queries) GetOperationByID(ctx context.Context, id uuid.UUID) (Operation
 		&i.ActorAdminID,
 		&i.NextAttemptAt,
 		&i.HeartbeatAt,
+		&i.Input,
+		&i.DeadlineAt,
+		&i.ParentOperationID,
 	)
 	return i, err
 }
 
 const getOperationByIdempotency = `-- name: GetOperationByIdempotency :one
-SELECT id, type, resource_type, resource_id, status, phase, progress, message_key, provider_id, provider_operation_id, idempotency_key, retryable, retry_count, max_retries, error_code, error_message, trace_id, started_at, finished_at, created_at, updated_at, user_id, actor_admin_id, next_attempt_at, heartbeat_at FROM operations WHERE idempotency_key = $1
+SELECT id, type, resource_type, resource_id, status, phase, progress, message_key, provider_id, provider_operation_id, idempotency_key, retryable, retry_count, max_retries, error_code, error_message, trace_id, started_at, finished_at, created_at, updated_at, user_id, actor_admin_id, next_attempt_at, heartbeat_at, input, deadline_at, parent_operation_id FROM operations WHERE idempotency_key = $1
 `
 
 func (q *Queries) GetOperationByIdempotency(ctx context.Context, idempotencyKey string) (Operation, error) {
@@ -343,12 +366,15 @@ func (q *Queries) GetOperationByIdempotency(ctx context.Context, idempotencyKey 
 		&i.ActorAdminID,
 		&i.NextAttemptAt,
 		&i.HeartbeatAt,
+		&i.Input,
+		&i.DeadlineAt,
+		&i.ParentOperationID,
 	)
 	return i, err
 }
 
 const getOperationForUser = `-- name: GetOperationForUser :one
-SELECT id, type, resource_type, resource_id, status, phase, progress, message_key, provider_id, provider_operation_id, idempotency_key, retryable, retry_count, max_retries, error_code, error_message, trace_id, started_at, finished_at, created_at, updated_at, user_id, actor_admin_id, next_attempt_at, heartbeat_at FROM operations WHERE id = $1 AND user_id = $2
+SELECT id, type, resource_type, resource_id, status, phase, progress, message_key, provider_id, provider_operation_id, idempotency_key, retryable, retry_count, max_retries, error_code, error_message, trace_id, started_at, finished_at, created_at, updated_at, user_id, actor_admin_id, next_attempt_at, heartbeat_at, input, deadline_at, parent_operation_id FROM operations WHERE id = $1 AND user_id = $2
 `
 
 type GetOperationForUserParams struct {
@@ -385,6 +411,9 @@ func (q *Queries) GetOperationForUser(ctx context.Context, arg GetOperationForUs
 		&i.ActorAdminID,
 		&i.NextAttemptAt,
 		&i.HeartbeatAt,
+		&i.Input,
+		&i.DeadlineAt,
+		&i.ParentOperationID,
 	)
 	return i, err
 }
@@ -433,7 +462,7 @@ UPDATE operations
 SET status = 'queued', phase = 'queued', progress = 0, message_key = 'operation.queued',
     retryable = false, heartbeat_at = NULL, updated_at = now()
 WHERE id = $1 AND status = 'retrying'
-RETURNING id, type, resource_type, resource_id, status, phase, progress, message_key, provider_id, provider_operation_id, idempotency_key, retryable, retry_count, max_retries, error_code, error_message, trace_id, started_at, finished_at, created_at, updated_at, user_id, actor_admin_id, next_attempt_at, heartbeat_at
+RETURNING id, type, resource_type, resource_id, status, phase, progress, message_key, provider_id, provider_operation_id, idempotency_key, retryable, retry_count, max_retries, error_code, error_message, trace_id, started_at, finished_at, created_at, updated_at, user_id, actor_admin_id, next_attempt_at, heartbeat_at, input, deadline_at, parent_operation_id
 `
 
 func (q *Queries) RequeueOperation(ctx context.Context, id uuid.UUID) (Operation, error) {
@@ -465,6 +494,9 @@ func (q *Queries) RequeueOperation(ctx context.Context, id uuid.UUID) (Operation
 		&i.ActorAdminID,
 		&i.NextAttemptAt,
 		&i.HeartbeatAt,
+		&i.Input,
+		&i.DeadlineAt,
+		&i.ParentOperationID,
 	)
 	return i, err
 }
@@ -475,7 +507,7 @@ SET status = 'retrying', phase = 'retrying', retryable = true,
     retry_count = retry_count + 1, error_code = $2, error_message = $3,
     message_key = $4, next_attempt_at = $5, heartbeat_at = now(), updated_at = now()
 WHERE id = $1 AND status NOT IN ('succeeded', 'failed', 'cancelled')
-RETURNING id, type, resource_type, resource_id, status, phase, progress, message_key, provider_id, provider_operation_id, idempotency_key, retryable, retry_count, max_retries, error_code, error_message, trace_id, started_at, finished_at, created_at, updated_at, user_id, actor_admin_id, next_attempt_at, heartbeat_at
+RETURNING id, type, resource_type, resource_id, status, phase, progress, message_key, provider_id, provider_operation_id, idempotency_key, retryable, retry_count, max_retries, error_code, error_message, trace_id, started_at, finished_at, created_at, updated_at, user_id, actor_admin_id, next_attempt_at, heartbeat_at, input, deadline_at, parent_operation_id
 `
 
 type ScheduleOperationRetryParams struct {
@@ -521,6 +553,9 @@ func (q *Queries) ScheduleOperationRetry(ctx context.Context, arg ScheduleOperat
 		&i.ActorAdminID,
 		&i.NextAttemptAt,
 		&i.HeartbeatAt,
+		&i.Input,
+		&i.DeadlineAt,
+		&i.ParentOperationID,
 	)
 	return i, err
 }
@@ -529,7 +564,7 @@ const updateOperationProgress = `-- name: UpdateOperationProgress :one
 UPDATE operations
 SET status = $2, phase = $3, progress = $4, message_key = $5, heartbeat_at = now(), updated_at = now()
 WHERE id = $1 AND status NOT IN ('succeeded', 'failed', 'cancelled')
-RETURNING id, type, resource_type, resource_id, status, phase, progress, message_key, provider_id, provider_operation_id, idempotency_key, retryable, retry_count, max_retries, error_code, error_message, trace_id, started_at, finished_at, created_at, updated_at, user_id, actor_admin_id, next_attempt_at, heartbeat_at
+RETURNING id, type, resource_type, resource_id, status, phase, progress, message_key, provider_id, provider_operation_id, idempotency_key, retryable, retry_count, max_retries, error_code, error_message, trace_id, started_at, finished_at, created_at, updated_at, user_id, actor_admin_id, next_attempt_at, heartbeat_at, input, deadline_at, parent_operation_id
 `
 
 type UpdateOperationProgressParams struct {
@@ -575,6 +610,9 @@ func (q *Queries) UpdateOperationProgress(ctx context.Context, arg UpdateOperati
 		&i.ActorAdminID,
 		&i.NextAttemptAt,
 		&i.HeartbeatAt,
+		&i.Input,
+		&i.DeadlineAt,
+		&i.ParentOperationID,
 	)
 	return i, err
 }

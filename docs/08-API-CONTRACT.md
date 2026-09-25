@@ -27,3 +27,5 @@ User Portal：`GET /instances`、`GET /instances/{id}`、`GET /instances/{id}/ne
 Admin Control Plane：`/admin/*` 使用独立 Admin Session、CSRF 与逐 Handler permission。列表覆盖 User/Product/Order/Payment/Ledger/Subscription/Instance/Node/Provider/Operation/Ticket/Audit/Admin/Role/Setting；secret 与 credential 永不返回。余额调整只能创建平衡 Ledger adjustment；用户状态、工单、设置与角色修改必须与 Audit 同事务。
 
 内部运维端点 `GET /metrics` 不属于 `/api/v1`，返回 Prometheus text format，并要求 `Authorization: Bearer <METRICS_TOKEN>`。Reverse Proxy 默认不公开该路径；监控系统应从受限管理网络直接抓取 Server。
+
+V2 adds capability/availability fields to catalog responses; owned instance usage and NAT endpoints; billing-profile GET/PUT; product/plan management; provider detail; operation retry/cancel; usage and dead-letter lists; audited dead-letter replay; and idempotent refund creation. Order creation accepts optional `promotion_code`. The authoritative machine-readable contract is `docs/openapi/openapi.yaml` version 2.0.0.

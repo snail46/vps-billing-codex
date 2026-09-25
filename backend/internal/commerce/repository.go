@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"math/big"
 	"strings"
 	"time"
 
@@ -31,6 +32,24 @@ func NewPostgresRepository(pool *pgxpool.Pool) *PostgresRepository {
 	return &PostgresRepository{pool: pool, queries: db.New(pool)}
 }
 
+func (r *PostgresRepository) BillingProfile(ctx context.Context, userID uuid.UUID) (BillingProfile, error) {
+	var value BillingProfile
+	err := r.pool.QueryRow(ctx, `SELECT user_id,legal_name,tax_id,country_code,address,updated_at FROM billing_profiles WHERE user_id=$1`, userID).Scan(&value.UserID, &value.LegalName, &value.TaxID, &value.CountryCode, &value.Address, &value.UpdatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return BillingProfile{UserID: userID, Address: json.RawMessage(`{}`)}, nil
+	}
+	return value, err
+}
+
+func (r *PostgresRepository) UpdateBillingProfile(ctx context.Context, userID uuid.UUID, input BillingProfile) (BillingProfile, error) {
+	if len(input.Address) == 0 {
+		input.Address = json.RawMessage(`{}`)
+	}
+	var value BillingProfile
+	err := r.pool.QueryRow(ctx, `INSERT INTO billing_profiles(user_id,legal_name,tax_id,country_code,address) VALUES($1,$2,$3,$4,$5) ON CONFLICT(user_id) DO UPDATE SET legal_name=EXCLUDED.legal_name,tax_id=EXCLUDED.tax_id,country_code=EXCLUDED.country_code,address=EXCLUDED.address,updated_at=now() RETURNING user_id,legal_name,tax_id,country_code,address,updated_at`, userID, input.LegalName, input.TaxID, input.CountryCode, input.Address).Scan(&value.UserID, &value.LegalName, &value.TaxID, &value.CountryCode, &value.Address, &value.UpdatedAt)
+	return value, err
+}
+
 func (r *PostgresRepository) ListCatalog(ctx context.Context) ([]CatalogItem, error) {
 	rows, err := r.queries.ListActiveProductsAndPlans(ctx)
 	if err != nil {
@@ -38,7 +57,7 @@ func (r *PostgresRepository) ListCatalog(ctx context.Context) ([]CatalogItem, er
 	}
 	items := make([]CatalogItem, 0, len(rows))
 	for _, row := range rows {
-		item := CatalogItem{ProductID: row.ProductID, ProductSlug: row.ProductSlug, ProductName: row.ProductNameI18n, Description: row.DescriptionI18n, PlanID: row.PlanID, PlanSlug: row.PlanSlug, PlanName: row.PlanNameI18n, CPUCores: row.CpuCores, MemoryMB: row.MemoryMb, DiskGB: row.DiskGb, IPv4Count: row.Ipv4Count, IPv6Count: row.Ipv6Count, NATPortCount: row.NatPortCount, Virtualization: row.Virtualization, BillingCycle: row.BillingCycle, PriceMinor: row.PriceMinor, Currency: row.Currency}
+		item := CatalogItem{ProductID: row.ProductID, ProductSlug: row.ProductSlug, ProductName: row.ProductNameI18n, Description: row.DescriptionI18n, ProductType: row.ProductType, Featured: row.Featured, PlanID: row.PlanID, PlanSlug: row.PlanSlug, PlanName: row.PlanNameI18n, CPUCores: row.CpuCores, MemoryMB: row.MemoryMb, DiskGB: row.DiskGb, IPv4Count: row.Ipv4Count, IPv6Count: row.Ipv6Count, NATPortCount: row.NatPortCount, Virtualization: row.Virtualization, BillingCycle: row.BillingCycle, PriceMinor: row.PriceMinor, Currency: row.Currency, StockMode: row.StockMode, SetupFeeMinor: row.SetupFeeMinor, OverageMinor: row.TrafficOveragePriceMinor, Region: row.Region.String, Available: row.Available, SharedIPv4: row.ProductType == "nat_vps", PortForward: row.NatPortCount > 0, TrafficMeter: row.TrafficGb.Valid}
 		if row.TrafficGb.Valid {
 			value := row.TrafficGb.Int64
 			item.TrafficGB = &value
@@ -47,15 +66,23 @@ func (r *PostgresRepository) ListCatalog(ctx context.Context) ([]CatalogItem, er
 			value := row.BandwidthMbps.Int32
 			item.BandwidthMbps = &value
 		}
+		if row.StockQuantity.Valid {
+			value := row.StockQuantity.Int32
+			item.StockQuantity = &value
+		}
 		items = append(items, item)
 	}
 	return items, nil
 }
 
 func (r *PostgresRepository) CreateOrder(ctx context.Context, userID, planID uuid.UUID, quantity int32, idempotencyKey string) (Order, error) {
+	return r.CreateOrderWithPromotion(ctx, userID, planID, quantity, idempotencyKey, "")
+}
+
+func (r *PostgresRepository) CreateOrderWithPromotion(ctx context.Context, userID, planID uuid.UUID, quantity int32, idempotencyKey, promotionCode string) (Order, error) {
 	key := pgtype.Text{String: idempotencyKey, Valid: true}
 	if existing, err := r.queries.GetOrderByUserIdempotency(ctx, db.GetOrderByUserIdempotencyParams{UserID: userID, IdempotencyKey: key}); err == nil {
-		if existing.Kind != "purchase" || existing.SubscriptionID != nil {
+		if existing.Kind != "purchase" || existing.SubscriptionID != nil || !r.orderMatchesPurchase(ctx, existing.ID, planID, quantity, promotionCode) {
 			return Order{}, ErrIdempotencyConflict
 		}
 		return r.orderWithPayment(ctx, existing)
@@ -76,12 +103,42 @@ func (r *PostgresRepository) CreateOrder(ctx context.Context, userID, planID uui
 	if err != nil {
 		return Order{}, err
 	}
-	if plan.PriceMinor > 0 && int64(quantity) > math.MaxInt64/plan.PriceMinor {
+	if plan.SetupFeeMinor > math.MaxInt64-plan.PriceMinor {
 		return Order{}, ErrInvalidQuantity
 	}
-	total := plan.PriceMinor * int64(quantity)
+	unitTotal := plan.PriceMinor + plan.SetupFeeMinor
+	if unitTotal > 0 && int64(quantity) > math.MaxInt64/unitTotal {
+		return Order{}, ErrInvalidQuantity
+	}
+	total := unitTotal * int64(quantity)
+	subtotal, discount := total, int64(0)
+	var promotionID *uuid.UUID
+	var promotionSnapshot []byte
+	if promotionCode != "" {
+		var id uuid.UUID
+		var discountType string
+		var value int64
+		var currency *string
+		err = tx.QueryRow(ctx, `SELECT id,discount_type,discount_value,currency FROM promotions WHERE code=$1 AND status='active' AND (starts_at IS NULL OR starts_at<=now()) AND (ends_at IS NULL OR ends_at>now()) AND (max_redemptions IS NULL OR redemption_count<max_redemptions) FOR UPDATE`, promotionCode).Scan(&id, &discountType, &value, &currency)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return Order{}, ErrPromotionInvalid
+		}
+		if err != nil || (discountType == "fixed" && (currency == nil || *currency != plan.Currency)) {
+			if err != nil {
+				return Order{}, err
+			}
+			return Order{}, ErrPromotionInvalid
+		}
+		discount = promotionDiscount(total, value, discountType)
+		promotionID = &id
+		promotionSnapshot, err = json.Marshal(map[string]any{"id": id, "code": promotionCode, "discount_type": discountType, "discount_value": value, "discount_minor": discount})
+		if err != nil {
+			return Order{}, err
+		}
+		total -= discount
+	}
 	orderID, invoiceID, paymentID := newID(), newID(), newID()
-	order, err := queries.CreateOrder(ctx, db.CreateOrderParams{ID: orderID, OrderNo: number("ORD", orderID), UserID: userID, SubtotalMinor: total, Currency: plan.Currency, IdempotencyKey: key, Kind: "purchase"})
+	order, err := queries.CreateOrder(ctx, db.CreateOrderParams{ID: orderID, OrderNo: number("ORD", orderID), UserID: userID, SubtotalMinor: subtotal, DiscountMinor: discount, TotalMinor: total, Currency: plan.Currency, IdempotencyKey: key, Kind: "purchase"})
 	if err != nil {
 		if isUniqueViolation(err) {
 			_ = tx.Rollback(ctx)
@@ -89,29 +146,40 @@ func (r *PostgresRepository) CreateOrder(ctx context.Context, userID, planID uui
 			if findErr != nil {
 				return Order{}, findErr
 			}
-			if existing.Kind != "purchase" || existing.SubscriptionID != nil {
+			if existing.Kind != "purchase" || existing.SubscriptionID != nil || !r.orderMatchesPurchase(ctx, existing.ID, planID, quantity, promotionCode) {
 				return Order{}, ErrIdempotencyConflict
 			}
 			return r.orderWithPayment(ctx, existing)
 		}
 		return Order{}, err
 	}
+	if promotionID != nil {
+		if _, err = tx.Exec(ctx, `UPDATE orders SET promotion_snapshot=$2 WHERE id=$1`, orderID, promotionSnapshot); err != nil {
+			return Order{}, err
+		}
+		if _, err = tx.Exec(ctx, `INSERT INTO promotion_redemptions(id,promotion_id,order_id,user_id,discount_minor,snapshot) VALUES($1,$2,$3,$4,$5,$6)`, newID(), *promotionID, orderID, userID, discount, promotionSnapshot); err != nil {
+			return Order{}, err
+		}
+		if _, err = tx.Exec(ctx, `UPDATE promotions SET redemption_count=redemption_count+1,updated_at=now() WHERE id=$1`, *promotionID); err != nil {
+			return Order{}, err
+		}
+	}
 	productSnapshot, err := json.Marshal(map[string]any{"id": plan.ProductID, "slug": plan.ProductSlug, "name_i18n": json.RawMessage(plan.ProductNameI18n), "description_i18n": json.RawMessage(plan.ProductDescriptionI18n)})
 	if err != nil {
 		return Order{}, err
 	}
-	planSnapshot, err := json.Marshal(map[string]any{"id": plan.ID, "slug": plan.Slug, "name_i18n": json.RawMessage(plan.NameI18n), "cpu_cores": plan.CpuCores, "memory_mb": plan.MemoryMb, "disk_gb": plan.DiskGb, "billing_cycle": plan.BillingCycle, "price_minor": plan.PriceMinor, "currency": plan.Currency, "virtualization": plan.Virtualization})
+	planSnapshot, err := json.Marshal(map[string]any{"id": plan.ID, "slug": plan.Slug, "name_i18n": json.RawMessage(plan.NameI18n), "cpu_cores": plan.CpuCores, "memory_mb": plan.MemoryMb, "disk_gb": plan.DiskGb, "billing_cycle": plan.BillingCycle, "price_minor": plan.PriceMinor, "setup_fee_minor": plan.SetupFeeMinor, "traffic_overage_price_minor": plan.TrafficOveragePriceMinor, "currency": plan.Currency, "virtualization": plan.Virtualization})
 	if err != nil {
 		return Order{}, err
 	}
-	if err := queries.CreateOrderItem(ctx, db.CreateOrderItemParams{ID: newID(), OrderID: orderID, ProductID: plan.ProductID, PlanID: plan.ID, Quantity: quantity, UnitPriceMinor: plan.PriceMinor, TotalMinor: total, ProductSnapshot: productSnapshot, PlanSnapshot: planSnapshot}); err != nil {
+	if err := queries.CreateOrderItem(ctx, db.CreateOrderItemParams{ID: newID(), OrderID: orderID, ProductID: plan.ProductID, PlanID: plan.ID, Quantity: quantity, UnitPriceMinor: unitTotal, TotalMinor: total, ProductSnapshot: productSnapshot, PlanSnapshot: planSnapshot}); err != nil {
 		return Order{}, err
 	}
 	invoice, err := queries.CreateInvoice(ctx, db.CreateInvoiceParams{ID: invoiceID, InvoiceNo: number("INV", invoiceID), UserID: userID, OrderID: &orderID, AmountMinor: total, Currency: plan.Currency, DueAt: timestamp(time.Now().Add(30 * time.Minute))})
 	if err != nil {
 		return Order{}, err
 	}
-	if err := queries.CreateInvoiceItem(ctx, db.CreateInvoiceItemParams{ID: newID(), InvoiceID: invoice.ID, DescriptionI18n: plan.NameI18n, Quantity: quantity, UnitAmountMinor: plan.PriceMinor, TotalMinor: total}); err != nil {
+	if err := queries.CreateInvoiceItem(ctx, db.CreateInvoiceItemParams{ID: newID(), InvoiceID: invoice.ID, DescriptionI18n: plan.NameI18n, Quantity: quantity, UnitAmountMinor: unitTotal, TotalMinor: total}); err != nil {
 		return Order{}, err
 	}
 	payment, err := queries.CreatePayment(ctx, db.CreatePaymentParams{ID: paymentID, PaymentNo: number("PAY", paymentID), OrderID: orderID, Gateway: fakeGateway, AmountMinor: total, Currency: plan.Currency, IdempotencyKey: "order:" + orderID.String() + ":fake"})
@@ -122,6 +190,29 @@ func (r *PostgresRepository) CreateOrder(ctx context.Context, userID, planID uui
 		return Order{}, err
 	}
 	return Order{ID: order.ID, OrderNo: order.OrderNo, Status: order.Status, TotalMinor: order.TotalMinor, Currency: order.Currency, Kind: order.Kind, PaymentID: &payment.ID, PaymentStatus: payment.Status}, nil
+}
+
+func (r *PostgresRepository) orderMatchesPurchase(ctx context.Context, orderID, planID uuid.UUID, quantity int32, promotionCode string) bool {
+	var storedPlan uuid.UUID
+	var storedQuantity int32
+	var storedCode string
+	err := r.pool.QueryRow(ctx, `SELECT oi.plan_id,oi.quantity,COALESCE(o.promotion_snapshot->>'code','') FROM orders o JOIN order_items oi ON oi.order_id=o.id WHERE o.id=$1 ORDER BY oi.created_at LIMIT 1`, orderID).Scan(&storedPlan, &storedQuantity, &storedCode)
+	return err == nil && storedPlan == planID && storedQuantity == quantity && storedCode == promotionCode
+}
+
+func promotionDiscount(total, value int64, discountType string) int64 {
+	if total <= 0 || value <= 0 {
+		return 0
+	}
+	if discountType == "fixed" {
+		return min(total, value)
+	}
+	result := new(big.Int).Mul(big.NewInt(total), big.NewInt(value))
+	result.Div(result, big.NewInt(10000))
+	if !result.IsInt64() || result.Int64() > total {
+		return total
+	}
+	return result.Int64()
 }
 
 func (r *PostgresRepository) CreateRenewalOrder(ctx context.Context, userID, subscriptionID uuid.UUID, idempotencyKey string) (Order, error) {
@@ -153,7 +244,7 @@ func (r *PostgresRepository) CreateRenewalOrder(ctx context.Context, userID, sub
 		return Order{}, ErrSubscriptionState
 	}
 	orderID, invoiceID, paymentID := newID(), newID(), newID()
-	order, err := queries.CreateOrder(ctx, db.CreateOrderParams{ID: orderID, OrderNo: number("ORD", orderID), UserID: userID, SubtotalMinor: target.PriceMinor, Currency: target.Currency, IdempotencyKey: key, Kind: "renewal", SubscriptionID: &subscriptionID})
+	order, err := queries.CreateOrder(ctx, db.CreateOrderParams{ID: orderID, OrderNo: number("ORD", orderID), UserID: userID, SubtotalMinor: target.PriceMinor, DiscountMinor: 0, TotalMinor: target.PriceMinor, Currency: target.Currency, IdempotencyKey: key, Kind: "renewal", SubscriptionID: &subscriptionID})
 	if err != nil {
 		if isUniqueViolation(err) {
 			_ = tx.Rollback(ctx)
@@ -276,7 +367,7 @@ func (r *PostgresRepository) CompletePayment(ctx context.Context, event Webhook,
 	if locked.PaymentAmountMinor != event.AmountMinor || locked.PaymentCurrency != strings.ToUpper(event.Currency) {
 		return PaymentResult{}, ErrPaymentMismatch
 	}
-	if locked.PaymentStatus == "succeeded" {
+	if locked.PaymentStatus == "succeeded" || locked.PaymentStatus == "partially_refunded" || locked.PaymentStatus == "refunded" {
 		if !locked.GatewayPaymentID.Valid || locked.GatewayPaymentID.String != event.ExternalPaymentID {
 			return PaymentResult{}, ErrPaymentMismatch
 		}

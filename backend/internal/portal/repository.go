@@ -3,6 +3,8 @@ package portal
 import (
 	"context"
 	"errors"
+	"math"
+	"math/big"
 	"strings"
 	"time"
 
@@ -76,6 +78,86 @@ func (r *PostgresRepository) ListTraffic(ctx context.Context, userID, id uuid.UU
 		result = append(result, Traffic{PeriodStart: row.PeriodStart.Time.UTC(), PeriodEnd: row.PeriodEnd.Time.UTC(), RXBytes: row.RxBytes, TXBytes: row.TxBytes, Source: row.Source})
 	}
 	return result, nil
+}
+func (r *PostgresRepository) UsageSummary(ctx context.Context, userID, id uuid.UUID) (UsageSummary, error) {
+	var value UsageSummary
+	err := r.pool.QueryRow(ctx, `SELECT s.current_period_start,s.current_period_end,
+		CASE WHEN pl.traffic_gb IS NULL THEN 9223372036854775807 ELSE pl.traffic_gb*1073741824 END,
+		COALESCE((SELECT sum(us.rx_bytes::numeric+us.tx_bytes::numeric) FROM usage_samples us WHERE us.instance_id=i.id AND us.period_start>=s.current_period_start AND us.period_end<=s.current_period_end),0),
+		pl.traffic_overage_price_minor,pl.currency
+		FROM instances i JOIN subscriptions s ON s.id=i.subscription_id JOIN plans pl ON pl.id=s.plan_id
+		WHERE i.id=$1 AND s.user_id=$2 AND s.current_period_start IS NOT NULL AND s.current_period_end IS NOT NULL`, id, userID).Scan(&value.PeriodStart, &value.PeriodEnd, &value.IncludedBytes, &value.UsedBytes, &value.EstimatedMinor, &value.Currency)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return UsageSummary{}, ErrNotFound
+	}
+	if err != nil {
+		return UsageSummary{}, err
+	}
+	value.OverageBytes = max(value.UsedBytes-value.IncludedBytes, 0)
+	if value.OverageBytes == 0 {
+		value.EstimatedMinor = 0
+	} else {
+		numerator := new(big.Int).Mul(big.NewInt(value.OverageBytes), big.NewInt(value.EstimatedMinor))
+		numerator.Add(numerator, big.NewInt((1<<30)-1)).Div(numerator, big.NewInt(1<<30))
+		if numerator.IsInt64() {
+			value.EstimatedMinor = numerator.Int64()
+		} else {
+			value.EstimatedMinor = math.MaxInt64
+		}
+	}
+	value.PeriodStart, value.PeriodEnd = value.PeriodStart.UTC(), value.PeriodEnd.UTC()
+	return value, nil
+}
+func (r *PostgresRepository) ListPortForwards(ctx context.Context, userID, id uuid.UUID) ([]PortForward, error) {
+	rows, err := r.pool.Query(ctx, `SELECT pf.id,pf.protocol,host(pf.public_ip),pf.public_port,pf.guest_port,COALESCE(pf.description,''),pf.status,pf.provider_mapping_id,pf.operation_id,pf.error_code,pf.created_at,pf.updated_at
+		FROM port_forwards pf JOIN instances i ON i.id=pf.instance_id JOIN subscriptions s ON s.id=i.subscription_id
+		WHERE pf.instance_id=$1 AND s.user_id=$2 AND pf.status<>'deleted' ORDER BY pf.created_at`, id, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := []PortForward{}
+	for rows.Next() {
+		var item PortForward
+		var mapping, errorCode pgtype.Text
+		if err = rows.Scan(&item.ID, &item.Protocol, &item.PublicIP, &item.PublicPort, &item.GuestPort, &item.Description, &item.Status, &mapping, &item.OperationID, &errorCode, &item.CreatedAt, &item.UpdatedAt); err != nil {
+			return nil, err
+		}
+		item.ProviderMappingID, item.ErrorCode = textPtr(mapping), textPtr(errorCode)
+		item.CreatedAt, item.UpdatedAt = item.CreatedAt.UTC(), item.UpdatedAt.UTC()
+		result = append(result, item)
+	}
+	return result, rows.Err()
+}
+
+func (r *PostgresRepository) PortForwardContext(ctx context.Context, userID, id uuid.UUID) (PortForwardContext, error) {
+	var value PortForwardContext
+	err := r.pool.QueryRow(ctx, `SELECT i.id,pl.nat_port_count,
+		(SELECT count(*) FROM port_forwards pf WHERE pf.instance_id=i.id AND pf.status<>'deleted'),
+		COALESCE((p.capabilities->>'port_forward')::boolean,(p.capabilities->>'nat')::boolean,false)
+		FROM instances i JOIN subscriptions s ON s.id=i.subscription_id JOIN plans pl ON pl.id=s.plan_id
+		JOIN providers p ON p.id=i.provider_id WHERE i.id=$1 AND s.user_id=$2 AND i.deleted_at IS NULL`, id, userID).Scan(&value.InstanceID, &value.Quota, &value.Active, &value.Supported)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return PortForwardContext{}, ErrNotFound
+	}
+	return value, err
+}
+
+func (r *PostgresRepository) GetPortForward(ctx context.Context, userID, instanceID, id uuid.UUID) (PortForward, error) {
+	var item PortForward
+	var mapping, errorCode pgtype.Text
+	err := r.pool.QueryRow(ctx, `SELECT pf.id,pf.protocol,host(pf.public_ip),pf.public_port,pf.guest_port,COALESCE(pf.description,''),pf.status,pf.provider_mapping_id,pf.operation_id,pf.error_code,pf.created_at,pf.updated_at
+		FROM port_forwards pf JOIN instances i ON i.id=pf.instance_id JOIN subscriptions s ON s.id=i.subscription_id
+		WHERE pf.id=$1 AND pf.instance_id=$2 AND s.user_id=$3 AND pf.status<>'deleted'`, id, instanceID, userID).Scan(&item.ID, &item.Protocol, &item.PublicIP, &item.PublicPort, &item.GuestPort, &item.Description, &item.Status, &mapping, &item.OperationID, &errorCode, &item.CreatedAt, &item.UpdatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return PortForward{}, ErrNotFound
+	}
+	if err != nil {
+		return PortForward{}, err
+	}
+	item.ProviderMappingID, item.ErrorCode = textPtr(mapping), textPtr(errorCode)
+	item.CreatedAt, item.UpdatedAt = item.CreatedAt.UTC(), item.UpdatedAt.UTC()
+	return item, nil
 }
 func (r *PostgresRepository) ActionContext(ctx context.Context, userID, id uuid.UUID) (ActionContext, error) {
 	row, err := r.queries.GetUserInstanceActionContext(ctx, db.GetUserInstanceActionContextParams{ID: id, UserID: userID})

@@ -16,3 +16,5 @@ Operation 事件：`operation.queued.v1`、`operation.updated.v1`。payload 只�
 Subscription 事件：`subscription.renewed.v1`、`subscription.past_due.v1`、`subscription.suspended.v1`、`subscription.cancel_scheduled.v1`、`subscription.cancel_schedule_removed.v1`、`subscription.cancelled.v1`。事件与对应状态变更在同一 PostgreSQL 事务写入 Outbox。
 
 Provision 事件：purchase 的 `payment.succeeded.v1` 触发开通；完成时写 `subscription.activated.v1` 与 `instance.running.v1`。Trigger 使用独立 Redis consumer group，重复支付事件不得重复创建 Subscription、Instance 或 Operation。
+
+V2 adds `usage.rated.v1` and `payment.refunded.v1`. Their event IDs are Outbox IDs and payloads contain only aggregate IDs, minor-unit amount/currency, timestamps and safe correlation data. Delivery failure never drops an event: exponential retry ends in visible dead-letter state and authorized replay preserves the original event identity.

@@ -81,7 +81,7 @@ func run(logger *slog.Logger) error {
 	operationhttp.New(operationService, identityHandler, redisClient.Raw()).Register(router)
 	portalService := portal.NewService(portal.NewPostgresRepository(postgresClient.Pool()))
 	portalhttp.New(portalService, operationService, identityHandler).Register(router)
-	adminhttp.New(admin.NewService(admin.NewPostgresRepository(postgresClient.Pool())), identityHandler).Register(router)
+	adminhttp.New(admin.NewService(admin.NewPostgresRepository(postgresClient.Pool())), identityHandler, operationService).Register(router)
 	handler := middleware.Correlation(logger, metricsCollector.Instrument(middleware.AccessLog(logger, middleware.SecurityHeaders(settings.CookieSecure, middleware.CORS([]string{settings.UserWebOrigin, settings.AdminWebOrigin}, router)))))
 
 	server, err := serverapp.New(settings.ServerAddress, handler, logger)

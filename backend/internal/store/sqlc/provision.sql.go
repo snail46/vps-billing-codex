@@ -203,7 +203,7 @@ func (q *Queries) CreatePurchaseSubscription(ctx context.Context, arg CreatePurc
 
 const getPaidPurchaseForProvision = `-- name: GetPaidPurchaseForProvision :one
 SELECT orders.id AS order_id, orders.user_id, orders.status AS order_status,
-       order_items.quantity, plans.id, plans.product_id, plans.node_group_id, plans.slug, plans.name_i18n, plans.status, plans.cpu_cores, plans.memory_mb, plans.disk_gb, plans.traffic_gb, plans.bandwidth_mbps, plans.ipv4_count, plans.ipv6_count, plans.nat_port_count, plans.virtualization, plans.billing_cycle, plans.price_minor, plans.currency, plans.stock_mode, plans.created_at, plans.updated_at, plans.default_image_id
+       order_items.quantity, plans.id, plans.product_id, plans.node_group_id, plans.slug, plans.name_i18n, plans.status, plans.cpu_cores, plans.memory_mb, plans.disk_gb, plans.traffic_gb, plans.bandwidth_mbps, plans.ipv4_count, plans.ipv6_count, plans.nat_port_count, plans.virtualization, plans.billing_cycle, plans.price_minor, plans.currency, plans.stock_mode, plans.created_at, plans.updated_at, plans.default_image_id, plans.stock_quantity, plans.setup_fee_minor, plans.traffic_overage_price_minor, plans.metadata
 FROM orders
 JOIN order_items ON order_items.order_id = orders.id
 JOIN plans ON plans.id = order_items.plan_id
@@ -212,32 +212,36 @@ FOR UPDATE OF orders
 `
 
 type GetPaidPurchaseForProvisionRow struct {
-	OrderID        uuid.UUID          `json:"order_id"`
-	UserID         uuid.UUID          `json:"user_id"`
-	OrderStatus    string             `json:"order_status"`
-	Quantity       int32              `json:"quantity"`
-	ID             uuid.UUID          `json:"id"`
-	ProductID      uuid.UUID          `json:"product_id"`
-	NodeGroupID    *uuid.UUID         `json:"node_group_id"`
-	Slug           string             `json:"slug"`
-	NameI18n       []byte             `json:"name_i18n"`
-	Status         string             `json:"status"`
-	CpuCores       float64            `json:"cpu_cores"`
-	MemoryMb       int32              `json:"memory_mb"`
-	DiskGb         int32              `json:"disk_gb"`
-	TrafficGb      pgtype.Int8        `json:"traffic_gb"`
-	BandwidthMbps  pgtype.Int4        `json:"bandwidth_mbps"`
-	Ipv4Count      int32              `json:"ipv4_count"`
-	Ipv6Count      int32              `json:"ipv6_count"`
-	NatPortCount   int32              `json:"nat_port_count"`
-	Virtualization string             `json:"virtualization"`
-	BillingCycle   string             `json:"billing_cycle"`
-	PriceMinor     int64              `json:"price_minor"`
-	Currency       string             `json:"currency"`
-	StockMode      string             `json:"stock_mode"`
-	CreatedAt      pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
-	DefaultImageID string             `json:"default_image_id"`
+	OrderID                  uuid.UUID          `json:"order_id"`
+	UserID                   uuid.UUID          `json:"user_id"`
+	OrderStatus              string             `json:"order_status"`
+	Quantity                 int32              `json:"quantity"`
+	ID                       uuid.UUID          `json:"id"`
+	ProductID                uuid.UUID          `json:"product_id"`
+	NodeGroupID              *uuid.UUID         `json:"node_group_id"`
+	Slug                     string             `json:"slug"`
+	NameI18n                 []byte             `json:"name_i18n"`
+	Status                   string             `json:"status"`
+	CpuCores                 float64            `json:"cpu_cores"`
+	MemoryMb                 int32              `json:"memory_mb"`
+	DiskGb                   int32              `json:"disk_gb"`
+	TrafficGb                pgtype.Int8        `json:"traffic_gb"`
+	BandwidthMbps            pgtype.Int4        `json:"bandwidth_mbps"`
+	Ipv4Count                int32              `json:"ipv4_count"`
+	Ipv6Count                int32              `json:"ipv6_count"`
+	NatPortCount             int32              `json:"nat_port_count"`
+	Virtualization           string             `json:"virtualization"`
+	BillingCycle             string             `json:"billing_cycle"`
+	PriceMinor               int64              `json:"price_minor"`
+	Currency                 string             `json:"currency"`
+	StockMode                string             `json:"stock_mode"`
+	CreatedAt                pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt                pgtype.Timestamptz `json:"updated_at"`
+	DefaultImageID           string             `json:"default_image_id"`
+	StockQuantity            pgtype.Int4        `json:"stock_quantity"`
+	SetupFeeMinor            int64              `json:"setup_fee_minor"`
+	TrafficOveragePriceMinor int64              `json:"traffic_overage_price_minor"`
+	Metadata                 []byte             `json:"metadata"`
 }
 
 func (q *Queries) GetPaidPurchaseForProvision(ctx context.Context, id uuid.UUID) (GetPaidPurchaseForProvisionRow, error) {
@@ -270,6 +274,10 @@ func (q *Queries) GetPaidPurchaseForProvision(ctx context.Context, id uuid.UUID)
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DefaultImageID,
+		&i.StockQuantity,
+		&i.SetupFeeMinor,
+		&i.TrafficOveragePriceMinor,
+		&i.Metadata,
 	)
 	return i, err
 }

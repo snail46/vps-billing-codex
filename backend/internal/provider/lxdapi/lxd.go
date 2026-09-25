@@ -144,7 +144,7 @@ func (a *Adapter) Health(ctx context.Context) (*providercontract.Health, error) 
 }
 
 func (a *Adapter) Capabilities(context.Context) (*providercontract.Capabilities, error) {
-	return &providercontract.Capabilities{CreateInstance: true, DeleteInstance: true, Start: true, Stop: true, Restart: true, Reinstall: true, ResetPassword: false, Traffic: true, Metrics: true, NAT: false, IPv4: true, IPv6: true, Snapshot: false, Console: false, Firewall: false, SupportedRuntimes: []string{"kvm", "lxc"}}, nil
+	return &providercontract.Capabilities{CreateInstance: true, DeleteInstance: true, Start: true, Stop: true, Restart: true, Reinstall: true, ResetPassword: false, Traffic: true, Metrics: true, NAT: false, SharedIPv4: false, PortForward: false, TrafficMeter: true, IPv4: true, IPv6: true, Snapshot: false, Console: false, Firewall: false, SupportedRuntimes: []string{"kvm", "lxc"}}, nil
 }
 
 func (a *Adapter) ListImages(ctx context.Context, _ string) ([]providercontract.Image, error) {

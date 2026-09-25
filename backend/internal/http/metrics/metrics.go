@@ -125,11 +125,13 @@ func (h *Handler) serve(w http.ResponseWriter, r *http.Request) {
 	}
 	_, _ = fmt.Fprintln(w, "vps_billing_metrics_collection_success 1")
 	for name, value := range map[string]int64{
-		"outbox_pending": snapshot.OutboxPending, "operations_active": snapshot.OperationsActive, "operations_failed_24h": snapshot.OperationsFailed,
+		"outbox_pending": snapshot.OutboxPending, "outbox_dead_letters": snapshot.OutboxDead, "usage_periods_overdue": snapshot.UsageOverdue, "operations_active": snapshot.OperationsActive, "operations_failed_24h": snapshot.OperationsFailed,
 		"nodes_offline": snapshot.NodesOffline, "agent_heartbeats_stale": snapshot.AgentsStale, "payments_succeeded_24h": snapshot.Payments24h,
 	} {
 		_, _ = fmt.Fprintf(w, "vps_billing_%s %d\n", name, value)
 	}
+	_, _ = fmt.Fprintf(w, "vps_billing_outbox_oldest_pending_seconds %.0f\n", snapshot.OutboxOldestSecs)
+	_, _ = fmt.Fprintf(w, "vps_billing_usage_collection_lag_seconds %.0f\n", snapshot.UsageLagSecs)
 	_, _ = fmt.Fprintf(w, "vps_billing_capacity_cpu_available %.2f\n", snapshot.CPUAvailable)
 	_, _ = fmt.Fprintf(w, "vps_billing_capacity_memory_mb_available %.0f\n", snapshot.MemoryAvailable)
 	_, _ = fmt.Fprintf(w, "vps_billing_capacity_disk_gb_available %.0f\n", snapshot.DiskAvailable)

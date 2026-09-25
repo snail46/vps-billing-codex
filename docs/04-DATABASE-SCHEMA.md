@@ -34,3 +34,10 @@ Migration 000010 增加 Runman Agent 边界：`agent_tokens` 只保存 token has
 Migration 000011 为 stale Operation、Agent heartbeat expiry 与 Instance reconciliation 增加部分索引。它不引入第二真相源；Operation、Reservation、Node 与 Instance 的恢复仍以现有聚合表为准。
 
 Migration 000012 为发布期的 Outbox dispatch、失败 Operation 告警、成功 Payment 指标、Audit/Ticket 后台列表与用户未读 Notification 增加热路径索引；不改变领域模型或数据语义。
+
+V2 migrations 000013–000019 are additive: catalog classification/stock/pricing;
+typed Operation inputs, attempts and NAT mappings; Provider health history; Scheduler
+decision diagnostics; idempotent usage samples/periods/charges; Outbox dead-letter
+metadata; and promotions, billing-profile snapshots and ledger-backed refunds. Orders
+snapshot promotions, invoices snapshot billing profiles, and refunds append reversal
+Ledger entries rather than mutating ledger history.

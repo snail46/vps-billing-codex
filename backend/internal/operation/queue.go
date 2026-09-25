@@ -103,12 +103,21 @@ func (c *QueueConsumer) processMessage(ctx context.Context, message redis.XMessa
 		return c.repository.Fail(ctx, current.ID, &WorkflowError{Code: "WORKFLOW_NOT_REGISTERED", MessageKey: "operation.errors.workflowMissing", Cause: ErrWorkflowMissing})
 	}
 	execution := &Execution{operationID: current.ID, attempt: current.RetryCount + 1, repository: c.repository}
-	executeErr := workflow.Execute(ctx, execution)
+	executionCtx := ctx
+	cancel := func() {}
+	if current.DeadlineAt.Valid {
+		executionCtx, cancel = context.WithDeadline(ctx, current.DeadlineAt.Time)
+	}
+	executeErr := workflow.Execute(executionCtx, execution)
+	cancel()
 	if executeErr == nil {
 		return c.repository.Succeed(ctx, current.ID)
 	}
 	var workflowErr *WorkflowError
-	if !errors.As(executeErr, &workflowErr) {
+	if errors.Is(executeErr, context.DeadlineExceeded) || errors.Is(executionCtx.Err(), context.DeadlineExceeded) {
+		workflowErr = &WorkflowError{Code: "OPERATION_DEADLINE_EXCEEDED", MessageKey: "operation.failed", Retryable: false, Cause: context.DeadlineExceeded}
+	}
+	if workflowErr == nil && !errors.As(executeErr, &workflowErr) {
 		workflowErr = &WorkflowError{Code: "WORKFLOW_FAILED", MessageKey: "operation.failed", Cause: executeErr}
 	}
 	if workflowErr.Retryable && current.RetryCount < current.MaxRetries {

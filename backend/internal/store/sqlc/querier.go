@@ -97,7 +97,7 @@ type Querier interface {
 	MarkOrderFulfilling(ctx context.Context, id uuid.UUID) error
 	MarkOrderPaid(ctx context.Context, id uuid.UUID) error
 	MarkOutboxPublished(ctx context.Context, id uuid.UUID) error
-	MarkOutboxRetry(ctx context.Context, id uuid.UUID) error
+	MarkOutboxRetry(ctx context.Context, arg MarkOutboxRetryParams) error
 	MarkPaymentSucceeded(ctx context.Context, arg MarkPaymentSucceededParams) error
 	MarkPurchaseOrderFulfilledIfReady(ctx context.Context, id uuid.UUID) error
 	MarkUserNotificationRead(ctx context.Context, arg MarkUserNotificationReadParams) (int64, error)

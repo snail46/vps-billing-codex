@@ -1,9 +1,10 @@
 -- name: CreateOperation :one
 INSERT INTO operations (
   id, type, resource_type, resource_id, status, phase, progress, message_key,
-  idempotency_key, retryable, retry_count, max_retries, trace_id, user_id, actor_admin_id, next_attempt_at
+  idempotency_key, retryable, retry_count, max_retries, trace_id, user_id, actor_admin_id,
+  input, deadline_at, parent_operation_id, next_attempt_at
 )
-VALUES ($1, $2, $3, $4, 'queued', 'queued', 0, $5, $6, false, 0, $7, $8, $9, $10, now())
+VALUES ($1, $2, $3, $4, 'queued', 'queued', 0, $5, $6, false, 0, $7, $8, $9, $10, $11, $12, $13, now())
 RETURNING *;
 
 -- name: CreateOperationStep :one
@@ -28,6 +29,7 @@ UPDATE operations
 SET status = 'running', phase = COALESCE(phase, 'starting'), started_at = COALESCE(started_at, now()),
     heartbeat_at = now(), updated_at = now()
 WHERE id = $1 AND status = 'queued' AND next_attempt_at <= now()
+  AND (deadline_at IS NULL OR deadline_at > now())
 RETURNING *;
 
 -- name: UpdateOperationProgress :one

@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -30,6 +31,8 @@ var listQueries = map[string]string{
 	"admins":        `SELECT to_jsonb(a) - 'password_hash' || jsonb_build_object('roles',COALESCE(jsonb_agg(r.key ORDER BY r.key) FILTER (WHERE r.id IS NOT NULL),'[]'::jsonb)) FROM admins a LEFT JOIN admin_roles ar ON ar.admin_id=a.id LEFT JOIN roles r ON r.id=ar.role_id GROUP BY a.id ORDER BY a.created_at DESC LIMIT 200`,
 	"roles":         `SELECT to_jsonb(r) || jsonb_build_object('permissions',COALESCE(jsonb_agg(p.key ORDER BY p.key) FILTER (WHERE p.id IS NOT NULL),'[]'::jsonb)) FROM roles r LEFT JOIN role_permissions rp ON rp.role_id=r.id LEFT JOIN permissions p ON p.id=rp.permission_id GROUP BY r.id ORDER BY r.key`,
 	"settings":      `SELECT jsonb_build_object('key',key,'value',CASE WHEN is_secret THEN to_jsonb('***'::text) ELSE value END,'is_secret',is_secret,'updated_at',updated_at,'updated_by',updated_by) FROM system_settings ORDER BY key`,
+	"usage":         `SELECT to_jsonb(b)||jsonb_build_object('user_email',u.email,'instance_name',i.name) FROM usage_billing_periods b JOIN subscriptions s ON s.id=b.subscription_id JOIN users u ON u.id=s.user_id JOIN instances i ON i.id=b.instance_id ORDER BY b.period_end DESC LIMIT 200`,
+	"dead_letters":  `SELECT to_jsonb(o)-'payload'-'last_error'||jsonb_build_object('error_code',CASE WHEN o.last_error IS NULL THEN NULL ELSE 'DELIVERY_FAILED' END) FROM outbox_events o WHERE status='dead_letter' ORDER BY dead_lettered_at DESC LIMIT 200`,
 }
 
 type PostgresRepository struct{ pool *pgxpool.Pool }
@@ -51,6 +54,8 @@ func (r *PostgresRepository) Dashboard(ctx context.Context) (Dashboard, error) {
       'users',(SELECT count(*) FROM users),'active_subscriptions',(SELECT count(*) FROM subscriptions WHERE status='active'),
       'monthly_revenue_minor',(SELECT COALESCE(sum(amount_minor),0) FROM payments WHERE status='succeeded' AND paid_at >= date_trunc('month',now())),
       'failed_operations',(SELECT count(*) FROM operations WHERE status='failed' AND created_at > now()-interval '24 hours'),
+	  'dead_letters',(SELECT count(*) FROM outbox_events WHERE status='dead_letter'),
+	  'usage_periods_overdue',(SELECT count(*) FROM usage_billing_periods WHERE status='open' AND period_end<now()),
       'open_tickets',(SELECT count(*) FROM tickets WHERE status NOT IN ('resolved','closed')),
       'offline_nodes',(SELECT count(*) FROM nodes WHERE status NOT IN ('online','active')))`)
 	if err != nil {
@@ -61,6 +66,7 @@ func (r *PostgresRepository) Dashboard(ctx context.Context) (Dashboard, error) {
 		query  string
 	}{
 		{nil, `SELECT jsonb_build_object('kind','operation','id',id,'severity','critical','status',status,'error_code',error_code,'created_at',created_at) FROM operations WHERE status='failed' ORDER BY created_at DESC LIMIT 10`},
+		{nil, `SELECT jsonb_build_object('kind','dead_letter','id',id,'severity','critical','status',status,'error_code','DELIVERY_FAILED','created_at',dead_lettered_at) FROM outbox_events WHERE status='dead_letter' ORDER BY dead_lettered_at DESC LIMIT 10`},
 		{nil, `SELECT to_jsonb(o) FROM operations o WHERE status='failed' ORDER BY created_at DESC LIMIT 10`},
 		{nil, `SELECT to_jsonb(p)-'credential_ref'-'config' FROM providers p ORDER BY CASE WHEN status='active' THEN 1 ELSE 0 END,last_health_check_at NULLS FIRST LIMIT 20`},
 		{nil, `SELECT to_jsonb(n) FROM nodes n ORDER BY CASE WHEN status='online' THEN 1 ELSE 0 END,last_seen_at NULLS FIRST LIMIT 20`},
@@ -73,7 +79,8 @@ func (r *PostgresRepository) Dashboard(ctx context.Context) (Dashboard, error) {
 			return Dashboard{}, err
 		}
 	}
-	return Dashboard{Metrics: metrics, CriticalAlerts: values[0], FailedOperations: values[1], ProviderHealth: values[2], NodeHealth: values[3], CapacityWarnings: values[4]}, nil
+	critical := append(values[0], values[1]...)
+	return Dashboard{Metrics: metrics, CriticalAlerts: critical, FailedOperations: values[2], ProviderHealth: values[3], NodeHealth: values[4], CapacityWarnings: values[5]}, nil
 }
 
 func (r *PostgresRepository) Instance(ctx context.Context, id uuid.UUID, diagnostics bool) (Item, error) {
@@ -85,12 +92,100 @@ func (r *PostgresRepository) Instance(ctx context.Context, id uuid.UUID, diagnos
 	return item, err
 }
 func (r *PostgresRepository) Operation(ctx context.Context, id uuid.UUID, raw bool) (Item, error) {
-	item, err := oneJSON(ctx, r.pool, `SELECT to_jsonb(o)||jsonb_build_object('steps',COALESCE((SELECT jsonb_agg(to_jsonb(s) ORDER BY step_order) FROM operation_steps s WHERE s.operation_id=o.id),'[]'::jsonb),'provider_name',p.name,'node_name',n.name) FROM operations o LEFT JOIN providers p ON p.id=o.provider_id LEFT JOIN instances i ON o.resource_type='instance' AND i.id=o.resource_id LEFT JOIN nodes n ON n.id=i.node_id WHERE o.id=$1`, id)
+	item, err := oneJSON(ctx, r.pool, `SELECT to_jsonb(o)||jsonb_build_object('steps',COALESCE((SELECT jsonb_agg(to_jsonb(s) ORDER BY step_order) FROM operation_steps s WHERE s.operation_id=o.id),'[]'::jsonb),'attempts',COALESCE((SELECT jsonb_agg(to_jsonb(a)-'error_message' ORDER BY attempt) FROM operation_attempts a WHERE a.operation_id=o.id),'[]'::jsonb),'scheduler_decisions',COALESCE((SELECT jsonb_agg(to_jsonb(d) ORDER BY created_at) FROM scheduler_decisions d WHERE d.operation_id=o.id),'[]'::jsonb),'provider_name',p.name,'node_name',n.name) FROM operations o LEFT JOIN providers p ON p.id=o.provider_id LEFT JOIN instances i ON o.resource_type='instance' AND i.id=o.resource_id LEFT JOIN nodes n ON n.id=i.node_id WHERE o.id=$1`, id)
 	if err == nil && !raw {
 		delete(item, "error_message")
 		delete(item, "provider_operation_id")
+		delete(item, "input")
 	}
 	return item, err
+}
+func (r *PostgresRepository) Provider(ctx context.Context, id uuid.UUID, diagnostics bool) (Item, error) {
+	item, err := oneJSON(ctx, r.pool, `SELECT to_jsonb(p)-'credential_ref'||jsonb_build_object(
+		'health_history',COALESCE((SELECT jsonb_agg(to_jsonb(h)-'details' ORDER BY h.checked_at DESC) FROM (SELECT * FROM provider_health_checks WHERE provider_id=p.id ORDER BY checked_at DESC LIMIT 50) h),'[]'::jsonb),
+		'nodes',COALESCE((SELECT jsonb_agg(to_jsonb(n) ORDER BY n.name) FROM nodes n WHERE n.provider_id=p.id),'[]'::jsonb))
+		FROM providers p WHERE p.id=$1`, id)
+	if err == nil && !diagnostics {
+		delete(item, "config")
+		delete(item, "endpoint")
+	}
+	return item, err
+}
+
+func (r *PostgresRepository) ReplayOutbox(ctx context.Context, id uuid.UUID, a AuditContext) (Item, error) {
+	return mutateJSON(ctx, r.pool, func(tx pgx.Tx) (Item, Item, error) {
+		before, err := oneJSON(ctx, tx, `SELECT to_jsonb(o)-'payload'-'last_error' FROM outbox_events o WHERE id=$1 AND status='dead_letter' FOR UPDATE`, id)
+		if err != nil {
+			return nil, nil, err
+		}
+		after, err := oneJSON(ctx, tx, `UPDATE outbox_events SET status='pending',attempts=0,next_attempt_at=now(),last_error=NULL,dead_lettered_at=NULL,replayed_at=now(),replayed_by=$2 WHERE id=$1 RETURNING to_jsonb(outbox_events)-'payload'-'last_error'`, id, a.AdminID)
+		return before, after, err
+	}, "outbox.replayed", "outbox_event", id, a)
+}
+
+func (r *PostgresRepository) RefundPayment(ctx context.Context, paymentID uuid.UUID, amount int64, reason, key string, a AuditContext) (Item, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	var existingPayment uuid.UUID
+	var existingAmount int64
+	var existingReason string
+	findErr := tx.QueryRow(ctx, `SELECT payment_id,amount_minor,reason FROM refunds WHERE idempotency_key=$1`, key).Scan(&existingPayment, &existingAmount, &existingReason)
+	if findErr == nil {
+		if existingPayment != paymentID || existingAmount != amount || existingReason != reason {
+			return nil, ErrRefundInvalid
+		}
+		existing, itemErr := oneJSON(ctx, tx, `SELECT to_jsonb(r) FROM refunds r WHERE idempotency_key=$1`, key)
+		if itemErr != nil {
+			return nil, itemErr
+		}
+		return existing, tx.Commit(ctx)
+	} else if !errors.Is(findErr, pgx.ErrNoRows) {
+		return nil, findErr
+	}
+	var paymentAmount, refunded int64
+	var currency, status string
+	var invoiceID uuid.UUID
+	if err = tx.QueryRow(ctx, `SELECT p.amount_minor,p.refunded_minor,p.currency,p.status,i.id FROM payments p JOIN invoices i ON i.order_id=p.order_id WHERE p.id=$1 FOR UPDATE OF p`, paymentID).Scan(&paymentAmount, &refunded, &currency, &status, &invoiceID); errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	} else if err != nil {
+		return nil, err
+	}
+	if !contains([]string{"succeeded", "partially_refunded"}, status) || amount > paymentAmount-refunded {
+		return nil, ErrRefundInvalid
+	}
+	refundID, transactionID := uuid.New(), uuid.New()
+	if _, err = tx.Exec(ctx, `INSERT INTO ledger_transactions(id,type,reference_type,reference_id,description) VALUES($1,'payment_refund','refund',$2,$3)`, transactionID, refundID, reason); err != nil {
+		return nil, err
+	}
+	if _, err = tx.Exec(ctx, `INSERT INTO ledger_entries(id,transaction_id,account_type,account_id,direction,amount_minor,currency) VALUES($1,$2,'accounts_receivable',$3,'debit',$4,$5),($6,$2,'gateway_cash',$7,'credit',$4,$5)`, uuid.New(), transactionID, invoiceID, amount, currency, uuid.New(), paymentID); err != nil {
+		return nil, err
+	}
+	newStatus := "partially_refunded"
+	if refunded+amount == paymentAmount {
+		newStatus = "refunded"
+	}
+	if _, err = tx.Exec(ctx, `UPDATE payments SET refunded_minor=refunded_minor+$2,status=$3,updated_at=now() WHERE id=$1`, paymentID, amount, newStatus); err != nil {
+		return nil, err
+	}
+	item, err := oneJSON(ctx, tx, `INSERT INTO refunds(id,payment_id,amount_minor,currency,reason,status,idempotency_key,ledger_transaction_id,created_by) VALUES($1,$2,$3,$4,$5,'succeeded',$6,$7,$8) RETURNING to_jsonb(refunds)`, refundID, paymentID, amount, currency, reason, key, transactionID, a.AdminID)
+	if err != nil {
+		return nil, err
+	}
+	if err = recordAudit(ctx, tx, "payment.refunded", "payment", paymentID, nil, item, a); err != nil {
+		return nil, err
+	}
+	eventID := uuid.New()
+	payload, _ := json.Marshal(map[string]any{"event_id": eventID, "event_type": "payment.refunded.v1", "aggregate_type": "payment", "aggregate_id": paymentID, "data": map[string]any{"refund_id": refundID, "amount_minor": amount, "currency": currency}})
+	if _, err = tx.Exec(ctx, `INSERT INTO outbox_events(id,event_type,aggregate_type,aggregate_id,payload) VALUES($1,'payment.refunded.v1','payment',$2,$3)`, eventID, paymentID, payload); err != nil {
+		return nil, err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	return item, nil
 }
 
 func (r *PostgresRepository) UpdateUserStatus(ctx context.Context, id uuid.UUID, status string, a AuditContext) (Item, error) {
@@ -263,6 +358,89 @@ func (r *PostgresRepository) SetAdminRoles(ctx context.Context, id uuid.UUID, ro
 		return nil, err
 	}
 	return after, nil
+}
+
+func (r *PostgresRepository) CreateProduct(ctx context.Context, input ProductInput, a AuditContext) (Item, error) {
+	id := uuid.New()
+	name, err := json.Marshal(input.NameI18n)
+	if err != nil {
+		return nil, ErrInvalidInput
+	}
+	description, err := json.Marshal(input.Description)
+	if err != nil {
+		return nil, ErrInvalidInput
+	}
+	item, err := mutateJSON(ctx, r.pool, func(tx pgx.Tx) (Item, Item, error) {
+		after, createErr := oneJSON(ctx, tx, `INSERT INTO products(id,slug,name_i18n,description_i18n,status,sort_order,product_type,featured) VALUES($1,$2,$3::jsonb,$4::jsonb,$5,$6,$7,$8) RETURNING to_jsonb(products)`, id, input.Slug, name, description, input.Status, input.SortOrder, input.ProductType, input.Featured)
+		return nil, after, createErr
+	}, "product.created", "product", id, a)
+	if isConstraintViolation(err) {
+		return nil, ErrInvalidInput
+	}
+	return item, err
+}
+
+func (r *PostgresRepository) UpdateProduct(ctx context.Context, id uuid.UUID, input ProductInput, a AuditContext) (Item, error) {
+	name, err := json.Marshal(input.NameI18n)
+	if err != nil {
+		return nil, ErrInvalidInput
+	}
+	description, err := json.Marshal(input.Description)
+	if err != nil {
+		return nil, ErrInvalidInput
+	}
+	item, err := mutateJSON(ctx, r.pool, func(tx pgx.Tx) (Item, Item, error) {
+		before, lockErr := oneJSON(ctx, tx, `SELECT to_jsonb(p) FROM products p WHERE id=$1 FOR UPDATE`, id)
+		if lockErr != nil {
+			return nil, nil, lockErr
+		}
+		after, updateErr := oneJSON(ctx, tx, `UPDATE products SET slug=$2,name_i18n=$3::jsonb,description_i18n=$4::jsonb,status=$5,sort_order=$6,product_type=$7,featured=$8,updated_at=now() WHERE id=$1 RETURNING to_jsonb(products)`, id, input.Slug, name, description, input.Status, input.SortOrder, input.ProductType, input.Featured)
+		return before, after, updateErr
+	}, "product.updated", "product", id, a)
+	if isConstraintViolation(err) {
+		return nil, ErrInvalidInput
+	}
+	return item, err
+}
+
+func (r *PostgresRepository) CreatePlan(ctx context.Context, productID uuid.UUID, input PlanInput, a AuditContext) (Item, error) {
+	id := uuid.New()
+	name, err := json.Marshal(input.NameI18n)
+	if err != nil {
+		return nil, ErrInvalidInput
+	}
+	item, err := mutateJSON(ctx, r.pool, func(tx pgx.Tx) (Item, Item, error) {
+		after, createErr := oneJSON(ctx, tx, `INSERT INTO plans(id,product_id,node_group_id,slug,name_i18n,status,cpu_cores,memory_mb,disk_gb,traffic_gb,bandwidth_mbps,ipv4_count,ipv6_count,nat_port_count,virtualization,billing_cycle,price_minor,currency,stock_mode,default_image_id,stock_quantity,setup_fee_minor,traffic_overage_price_minor) VALUES($1,$2,$3,$4,$5::jsonb,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23) RETURNING to_jsonb(plans)`, id, productID, input.NodeGroupID, input.Slug, name, input.Status, input.CPUCores, input.MemoryMB, input.DiskGB, input.TrafficGB, input.BandwidthMbps, input.IPv4Count, input.IPv6Count, input.NATPortCount, input.Virtualization, input.BillingCycle, input.PriceMinor, input.Currency, input.StockMode, input.DefaultImageID, input.StockQuantity, input.SetupFeeMinor, input.OverageMinor)
+		return nil, after, createErr
+	}, "plan.created", "plan", id, a)
+	if isConstraintViolation(err) {
+		return nil, ErrInvalidInput
+	}
+	return item, err
+}
+
+func (r *PostgresRepository) UpdatePlan(ctx context.Context, id uuid.UUID, input PlanInput, a AuditContext) (Item, error) {
+	name, err := json.Marshal(input.NameI18n)
+	if err != nil {
+		return nil, ErrInvalidInput
+	}
+	item, err := mutateJSON(ctx, r.pool, func(tx pgx.Tx) (Item, Item, error) {
+		before, lockErr := oneJSON(ctx, tx, `SELECT to_jsonb(p) FROM plans p WHERE id=$1 FOR UPDATE`, id)
+		if lockErr != nil {
+			return nil, nil, lockErr
+		}
+		after, updateErr := oneJSON(ctx, tx, `UPDATE plans SET node_group_id=$2,slug=$3,name_i18n=$4::jsonb,status=$5,cpu_cores=$6,memory_mb=$7,disk_gb=$8,traffic_gb=$9,bandwidth_mbps=$10,ipv4_count=$11,ipv6_count=$12,nat_port_count=$13,virtualization=$14,billing_cycle=$15,price_minor=$16,currency=$17,stock_mode=$18,default_image_id=$19,stock_quantity=$20,setup_fee_minor=$21,traffic_overage_price_minor=$22,updated_at=now() WHERE id=$1 RETURNING to_jsonb(plans)`, id, input.NodeGroupID, input.Slug, name, input.Status, input.CPUCores, input.MemoryMB, input.DiskGB, input.TrafficGB, input.BandwidthMbps, input.IPv4Count, input.IPv6Count, input.NATPortCount, input.Virtualization, input.BillingCycle, input.PriceMinor, input.Currency, input.StockMode, input.DefaultImageID, input.StockQuantity, input.SetupFeeMinor, input.OverageMinor)
+		return before, after, updateErr
+	}, "plan.updated", "plan", id, a)
+	if isConstraintViolation(err) {
+		return nil, ErrInvalidInput
+	}
+	return item, err
+}
+
+func isConstraintViolation(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && (pgErr.Code == "23505" || pgErr.Code == "23503" || pgErr.Code == "23514")
 }
 
 type queryer interface {

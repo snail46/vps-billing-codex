@@ -46,14 +46,32 @@ func (s *Scheduler) Reserve(ctx context.Context, operationID uuid.UUID, request 
 		CpuCores: request.Resources.CPUCores, MemoryMb: request.Resources.MemoryMB, DiskGb: request.Resources.DiskGB,
 		Ipv4Count: request.Resources.IPv4Count, Ipv6Count: request.Resources.IPv6Count, NatPortCount: request.Resources.NATPortCount,
 	}
+	var placementPolicy string
+	if err := tx.QueryRow(ctx, `SELECT placement_policy FROM node_groups WHERE id=$1`, request.NodeGroupID).Scan(&placementPolicy); err != nil {
+		return Reservation{}, err
+	}
+	requestedResources, err := json.Marshal(request.Resources)
+	if err != nil {
+		return Reservation{}, ErrInvalidRequest
+	}
 	candidates, err := queries.SelectCandidateNodesForUpdate(ctx, params)
 	if err != nil {
 		return Reservation{}, err
 	}
 	if len(candidates) == 0 {
+		if _, recordErr := tx.Exec(ctx, `INSERT INTO scheduler_decisions(id,operation_id,node_group_id,placement_policy,candidate_count,requested_resources,required_capabilities,result) VALUES($1,$2,$3,$4,0,$5,$6,'exhausted')`, newID(), operationID, request.NodeGroupID, placementPolicy, requestedResources, requiredCapabilities); recordErr != nil {
+			return Reservation{}, recordErr
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return Reservation{}, err
+		}
 		return Reservation{}, ErrResourceExhausted
 	}
 	node := candidates[0]
+	score := utilizationScore(node.CpuAllocated+node.CpuReserved+request.Resources.CPUCores, node.CpuTotal, float64(node.MemoryAllocatedMb+node.MemoryReservedMb+request.Resources.MemoryMB), float64(node.MemoryTotalMb), float64(node.DiskAllocatedGb+node.DiskReservedGb+request.Resources.DiskGB), float64(node.DiskTotalGb))
+	if _, err := tx.Exec(ctx, `INSERT INTO scheduler_decisions(id,operation_id,node_group_id,selected_node_id,placement_policy,candidate_count,requested_resources,required_capabilities,selected_score,result) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,'selected')`, newID(), operationID, request.NodeGroupID, node.ID, placementPolicy, len(candidates), requestedResources, requiredCapabilities, score); err != nil {
+		return Reservation{}, err
+	}
 	if _, err := queries.AddNodeReservation(ctx, db.AddNodeReservationParams{
 		NodeID: node.ID, CpuCores: request.Resources.CPUCores, MemoryMb: request.Resources.MemoryMB, DiskGb: request.Resources.DiskGB,
 		Ipv4Count: request.Resources.IPv4Count, Ipv6Count: request.Resources.IPv6Count, NatPortCount: request.Resources.NATPortCount,
@@ -83,6 +101,16 @@ func (s *Scheduler) Reserve(ctx context.Context, operationID uuid.UUID, request 
 		return Reservation{}, err
 	}
 	return reservationFromRow(row), nil
+}
+
+func utilizationScore(cpuUsed, cpuTotal, memoryUsed, memoryTotal, diskUsed, diskTotal float64) float64 {
+	score := 0.0
+	for _, pair := range [][2]float64{{cpuUsed, cpuTotal}, {memoryUsed, memoryTotal}, {diskUsed, diskTotal}} {
+		if pair[1] > 0 && pair[0]/pair[1] > score {
+			score = pair[0] / pair[1]
+		}
+	}
+	return score
 }
 
 func (s *Scheduler) Commit(ctx context.Context, reservationID uuid.UUID) (Reservation, error) {

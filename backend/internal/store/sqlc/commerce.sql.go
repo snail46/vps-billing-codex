@@ -13,7 +13,7 @@ import (
 )
 
 const claimOutboxEvents = `-- name: ClaimOutboxEvents :many
-SELECT id, event_type, aggregate_type, aggregate_id, payload, status, attempts, next_attempt_at, created_at, published_at FROM outbox_events
+SELECT id, event_type, aggregate_type, aggregate_id, payload, status, attempts, next_attempt_at, created_at, published_at, last_error, dead_lettered_at, replayed_at, replayed_by FROM outbox_events
 WHERE status = 'pending' AND next_attempt_at <= now()
 ORDER BY created_at
 FOR UPDATE SKIP LOCKED
@@ -40,6 +40,10 @@ func (q *Queries) ClaimOutboxEvents(ctx context.Context, limit int32) ([]OutboxE
 			&i.NextAttemptAt,
 			&i.CreatedAt,
 			&i.PublishedAt,
+			&i.LastError,
+			&i.DeadLetteredAt,
+			&i.ReplayedAt,
+			&i.ReplayedBy,
 		); err != nil {
 			return nil, err
 		}
@@ -69,9 +73,9 @@ func (q *Queries) CountLedgerTransactionsByReference(ctx context.Context, arg Co
 }
 
 const createInvoice = `-- name: CreateInvoice :one
-INSERT INTO invoices (id, invoice_no, user_id, subscription_id, order_id, status, amount_minor, currency, due_at)
-VALUES ($1, $2, $3, $4, $5, 'open', $6, $7, $8)
-RETURNING id, invoice_no, user_id, subscription_id, order_id, status, amount_minor, currency, due_at, paid_at, created_at, updated_at
+INSERT INTO invoices (id, invoice_no, user_id, subscription_id, order_id, status, amount_minor, currency, due_at, billing_profile_snapshot)
+VALUES ($1, $2, $3, $4, $5, 'open', $6, $7, $8, COALESCE((SELECT to_jsonb(bp)-'user_id'-'updated_at' FROM billing_profiles bp WHERE bp.user_id=$3),'{}'::jsonb))
+RETURNING id, invoice_no, user_id, subscription_id, order_id, status, amount_minor, currency, due_at, paid_at, created_at, updated_at, billing_profile_snapshot
 `
 
 type CreateInvoiceParams struct {
@@ -110,6 +114,7 @@ func (q *Queries) CreateInvoice(ctx context.Context, arg CreateInvoiceParams) (I
 		&i.PaidAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.BillingProfileSnapshot,
 	)
 	return i, err
 }
@@ -194,8 +199,8 @@ func (q *Queries) CreateLedgerTransaction(ctx context.Context, arg CreateLedgerT
 
 const createOrder = `-- name: CreateOrder :one
 INSERT INTO orders (id, order_no, user_id, status, subtotal_minor, discount_minor, total_minor, currency, idempotency_key, kind, subscription_id)
-VALUES ($1, $2, $3, 'pending', $4, 0, $4, $5, $6, $7, $8)
-RETURNING id, order_no, user_id, status, subtotal_minor, discount_minor, total_minor, currency, paid_at, created_at, updated_at, idempotency_key, kind, subscription_id
+VALUES ($1, $2, $3, 'pending', $4, $5, $6, $7, $8, $9, $10)
+RETURNING id, order_no, user_id, status, subtotal_minor, discount_minor, total_minor, currency, paid_at, created_at, updated_at, idempotency_key, kind, subscription_id, promotion_snapshot
 `
 
 type CreateOrderParams struct {
@@ -203,6 +208,8 @@ type CreateOrderParams struct {
 	OrderNo        string      `json:"order_no"`
 	UserID         uuid.UUID   `json:"user_id"`
 	SubtotalMinor  int64       `json:"subtotal_minor"`
+	DiscountMinor  int64       `json:"discount_minor"`
+	TotalMinor     int64       `json:"total_minor"`
 	Currency       string      `json:"currency"`
 	IdempotencyKey pgtype.Text `json:"idempotency_key"`
 	Kind           string      `json:"kind"`
@@ -215,6 +222,8 @@ func (q *Queries) CreateOrder(ctx context.Context, arg CreateOrderParams) (Order
 		arg.OrderNo,
 		arg.UserID,
 		arg.SubtotalMinor,
+		arg.DiscountMinor,
+		arg.TotalMinor,
 		arg.Currency,
 		arg.IdempotencyKey,
 		arg.Kind,
@@ -236,6 +245,7 @@ func (q *Queries) CreateOrder(ctx context.Context, arg CreateOrderParams) (Order
 		&i.IdempotencyKey,
 		&i.Kind,
 		&i.SubscriptionID,
+		&i.PromotionSnapshot,
 	)
 	return i, err
 }
@@ -299,7 +309,7 @@ func (q *Queries) CreateOutboxEvent(ctx context.Context, arg CreateOutboxEventPa
 const createPayment = `-- name: CreatePayment :one
 INSERT INTO payments (id, payment_no, order_id, gateway, status, amount_minor, currency, idempotency_key)
 VALUES ($1, $2, $3, $4, 'pending', $5, $6, $7)
-RETURNING id, payment_no, order_id, gateway, gateway_payment_id, status, amount_minor, currency, idempotency_key, gateway_payload, paid_at, created_at, updated_at
+RETURNING id, payment_no, order_id, gateway, gateway_payment_id, status, amount_minor, currency, idempotency_key, gateway_payload, paid_at, created_at, updated_at, refunded_minor
 `
 
 type CreatePaymentParams struct {
@@ -337,6 +347,7 @@ func (q *Queries) CreatePayment(ctx context.Context, arg CreatePaymentParams) (P
 		&i.PaidAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.RefundedMinor,
 	)
 	return i, err
 }
@@ -368,7 +379,7 @@ func (q *Queries) EnsureWallet(ctx context.Context, arg EnsureWalletParams) (Wal
 }
 
 const getOrderByUserIdempotency = `-- name: GetOrderByUserIdempotency :one
-SELECT id, order_no, user_id, status, subtotal_minor, discount_minor, total_minor, currency, paid_at, created_at, updated_at, idempotency_key, kind, subscription_id FROM orders WHERE user_id = $1 AND idempotency_key = $2
+SELECT id, order_no, user_id, status, subtotal_minor, discount_minor, total_minor, currency, paid_at, created_at, updated_at, idempotency_key, kind, subscription_id, promotion_snapshot FROM orders WHERE user_id = $1 AND idempotency_key = $2
 `
 
 type GetOrderByUserIdempotencyParams struct {
@@ -394,12 +405,13 @@ func (q *Queries) GetOrderByUserIdempotency(ctx context.Context, arg GetOrderByU
 		&i.IdempotencyKey,
 		&i.Kind,
 		&i.SubscriptionID,
+		&i.PromotionSnapshot,
 	)
 	return i, err
 }
 
 const getPaymentByOrder = `-- name: GetPaymentByOrder :one
-SELECT id, payment_no, order_id, gateway, gateway_payment_id, status, amount_minor, currency, idempotency_key, gateway_payload, paid_at, created_at, updated_at FROM payments WHERE order_id = $1 ORDER BY created_at LIMIT 1
+SELECT id, payment_no, order_id, gateway, gateway_payment_id, status, amount_minor, currency, idempotency_key, gateway_payload, paid_at, created_at, updated_at, refunded_minor FROM payments WHERE order_id = $1 ORDER BY created_at LIMIT 1
 `
 
 func (q *Queries) GetPaymentByOrder(ctx context.Context, orderID uuid.UUID) (Payment, error) {
@@ -419,44 +431,49 @@ func (q *Queries) GetPaymentByOrder(ctx context.Context, orderID uuid.UUID) (Pay
 		&i.PaidAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.RefundedMinor,
 	)
 	return i, err
 }
 
 const getPlanForOrder = `-- name: GetPlanForOrder :one
-SELECT plans.id, plans.product_id, plans.node_group_id, plans.slug, plans.name_i18n, plans.status, plans.cpu_cores, plans.memory_mb, plans.disk_gb, plans.traffic_gb, plans.bandwidth_mbps, plans.ipv4_count, plans.ipv6_count, plans.nat_port_count, plans.virtualization, plans.billing_cycle, plans.price_minor, plans.currency, plans.stock_mode, plans.created_at, plans.updated_at, plans.default_image_id, products.slug AS product_slug, products.name_i18n AS product_name_i18n,
+SELECT plans.id, plans.product_id, plans.node_group_id, plans.slug, plans.name_i18n, plans.status, plans.cpu_cores, plans.memory_mb, plans.disk_gb, plans.traffic_gb, plans.bandwidth_mbps, plans.ipv4_count, plans.ipv6_count, plans.nat_port_count, plans.virtualization, plans.billing_cycle, plans.price_minor, plans.currency, plans.stock_mode, plans.created_at, plans.updated_at, plans.default_image_id, plans.stock_quantity, plans.setup_fee_minor, plans.traffic_overage_price_minor, plans.metadata, products.slug AS product_slug, products.name_i18n AS product_name_i18n,
        products.description_i18n AS product_description_i18n, products.status AS product_status
 FROM plans JOIN products ON products.id = plans.product_id
 WHERE plans.id = $1 AND plans.status = 'active' AND products.status = 'active'
 `
 
 type GetPlanForOrderRow struct {
-	ID                     uuid.UUID          `json:"id"`
-	ProductID              uuid.UUID          `json:"product_id"`
-	NodeGroupID            *uuid.UUID         `json:"node_group_id"`
-	Slug                   string             `json:"slug"`
-	NameI18n               []byte             `json:"name_i18n"`
-	Status                 string             `json:"status"`
-	CpuCores               float64            `json:"cpu_cores"`
-	MemoryMb               int32              `json:"memory_mb"`
-	DiskGb                 int32              `json:"disk_gb"`
-	TrafficGb              pgtype.Int8        `json:"traffic_gb"`
-	BandwidthMbps          pgtype.Int4        `json:"bandwidth_mbps"`
-	Ipv4Count              int32              `json:"ipv4_count"`
-	Ipv6Count              int32              `json:"ipv6_count"`
-	NatPortCount           int32              `json:"nat_port_count"`
-	Virtualization         string             `json:"virtualization"`
-	BillingCycle           string             `json:"billing_cycle"`
-	PriceMinor             int64              `json:"price_minor"`
-	Currency               string             `json:"currency"`
-	StockMode              string             `json:"stock_mode"`
-	CreatedAt              pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt              pgtype.Timestamptz `json:"updated_at"`
-	DefaultImageID         string             `json:"default_image_id"`
-	ProductSlug            string             `json:"product_slug"`
-	ProductNameI18n        []byte             `json:"product_name_i18n"`
-	ProductDescriptionI18n []byte             `json:"product_description_i18n"`
-	ProductStatus          string             `json:"product_status"`
+	ID                       uuid.UUID          `json:"id"`
+	ProductID                uuid.UUID          `json:"product_id"`
+	NodeGroupID              *uuid.UUID         `json:"node_group_id"`
+	Slug                     string             `json:"slug"`
+	NameI18n                 []byte             `json:"name_i18n"`
+	Status                   string             `json:"status"`
+	CpuCores                 float64            `json:"cpu_cores"`
+	MemoryMb                 int32              `json:"memory_mb"`
+	DiskGb                   int32              `json:"disk_gb"`
+	TrafficGb                pgtype.Int8        `json:"traffic_gb"`
+	BandwidthMbps            pgtype.Int4        `json:"bandwidth_mbps"`
+	Ipv4Count                int32              `json:"ipv4_count"`
+	Ipv6Count                int32              `json:"ipv6_count"`
+	NatPortCount             int32              `json:"nat_port_count"`
+	Virtualization           string             `json:"virtualization"`
+	BillingCycle             string             `json:"billing_cycle"`
+	PriceMinor               int64              `json:"price_minor"`
+	Currency                 string             `json:"currency"`
+	StockMode                string             `json:"stock_mode"`
+	CreatedAt                pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt                pgtype.Timestamptz `json:"updated_at"`
+	DefaultImageID           string             `json:"default_image_id"`
+	StockQuantity            pgtype.Int4        `json:"stock_quantity"`
+	SetupFeeMinor            int64              `json:"setup_fee_minor"`
+	TrafficOveragePriceMinor int64              `json:"traffic_overage_price_minor"`
+	Metadata                 []byte             `json:"metadata"`
+	ProductSlug              string             `json:"product_slug"`
+	ProductNameI18n          []byte             `json:"product_name_i18n"`
+	ProductDescriptionI18n   []byte             `json:"product_description_i18n"`
+	ProductStatus            string             `json:"product_status"`
 }
 
 func (q *Queries) GetPlanForOrder(ctx context.Context, id uuid.UUID) (GetPlanForOrderRow, error) {
@@ -485,6 +502,10 @@ func (q *Queries) GetPlanForOrder(ctx context.Context, id uuid.UUID) (GetPlanFor
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DefaultImageID,
+		&i.StockQuantity,
+		&i.SetupFeeMinor,
+		&i.TrafficOveragePriceMinor,
+		&i.Metadata,
 		&i.ProductSlug,
 		&i.ProductNameI18n,
 		&i.ProductDescriptionI18n,
@@ -567,36 +588,57 @@ func (q *Queries) InsertWebhookReceipt(ctx context.Context, arg InsertWebhookRec
 
 const listActiveProductsAndPlans = `-- name: ListActiveProductsAndPlans :many
 SELECT products.id AS product_id, products.slug AS product_slug, products.name_i18n AS product_name_i18n,
-       products.description_i18n, plans.id AS plan_id, plans.slug AS plan_slug, plans.name_i18n AS plan_name_i18n,
+       products.description_i18n, products.product_type, products.featured,
+       plans.id AS plan_id, plans.slug AS plan_slug, plans.name_i18n AS plan_name_i18n,
        plans.cpu_cores, plans.memory_mb, plans.disk_gb, plans.traffic_gb, plans.bandwidth_mbps,
        plans.ipv4_count, plans.ipv6_count, plans.nat_port_count, plans.virtualization, plans.billing_cycle,
-       plans.price_minor, plans.currency, plans.stock_mode
+       plans.price_minor, plans.currency, plans.stock_mode, plans.stock_quantity, plans.setup_fee_minor,
+       plans.traffic_overage_price_minor, node_groups.region,
+       (CASE WHEN plans.stock_mode = 'manual' THEN COALESCE(plans.stock_quantity, 0) > 0
+            ELSE EXISTS (
+              SELECT 1 FROM nodes
+              WHERE nodes.node_group_id = plans.node_group_id AND nodes.status = 'online'
+                AND nodes.cpu_total - nodes.cpu_allocated - nodes.cpu_reserved >= plans.cpu_cores
+                AND nodes.memory_total_mb - nodes.memory_allocated_mb - nodes.memory_reserved_mb >= plans.memory_mb
+                AND nodes.disk_total_gb - nodes.disk_allocated_gb - nodes.disk_reserved_gb >= plans.disk_gb
+                AND nodes.ipv4_total - nodes.ipv4_allocated - nodes.ipv4_reserved >= plans.ipv4_count
+                AND nodes.ipv6_total - nodes.ipv6_allocated - nodes.ipv6_reserved >= plans.ipv6_count
+                AND nodes.nat_port_total - nodes.nat_port_allocated - nodes.nat_port_reserved >= plans.nat_port_count
+            ) END)::boolean AS available
 FROM products JOIN plans ON plans.product_id = products.id
+LEFT JOIN node_groups ON node_groups.id = plans.node_group_id
 WHERE products.status = 'active' AND plans.status = 'active'
-ORDER BY products.sort_order, products.slug, plans.price_minor, plans.slug
+ORDER BY products.featured DESC, products.sort_order, products.slug, plans.price_minor, plans.slug
 `
 
 type ListActiveProductsAndPlansRow struct {
-	ProductID       uuid.UUID   `json:"product_id"`
-	ProductSlug     string      `json:"product_slug"`
-	ProductNameI18n []byte      `json:"product_name_i18n"`
-	DescriptionI18n []byte      `json:"description_i18n"`
-	PlanID          uuid.UUID   `json:"plan_id"`
-	PlanSlug        string      `json:"plan_slug"`
-	PlanNameI18n    []byte      `json:"plan_name_i18n"`
-	CpuCores        float64     `json:"cpu_cores"`
-	MemoryMb        int32       `json:"memory_mb"`
-	DiskGb          int32       `json:"disk_gb"`
-	TrafficGb       pgtype.Int8 `json:"traffic_gb"`
-	BandwidthMbps   pgtype.Int4 `json:"bandwidth_mbps"`
-	Ipv4Count       int32       `json:"ipv4_count"`
-	Ipv6Count       int32       `json:"ipv6_count"`
-	NatPortCount    int32       `json:"nat_port_count"`
-	Virtualization  string      `json:"virtualization"`
-	BillingCycle    string      `json:"billing_cycle"`
-	PriceMinor      int64       `json:"price_minor"`
-	Currency        string      `json:"currency"`
-	StockMode       string      `json:"stock_mode"`
+	ProductID                uuid.UUID   `json:"product_id"`
+	ProductSlug              string      `json:"product_slug"`
+	ProductNameI18n          []byte      `json:"product_name_i18n"`
+	DescriptionI18n          []byte      `json:"description_i18n"`
+	ProductType              string      `json:"product_type"`
+	Featured                 bool        `json:"featured"`
+	PlanID                   uuid.UUID   `json:"plan_id"`
+	PlanSlug                 string      `json:"plan_slug"`
+	PlanNameI18n             []byte      `json:"plan_name_i18n"`
+	CpuCores                 float64     `json:"cpu_cores"`
+	MemoryMb                 int32       `json:"memory_mb"`
+	DiskGb                   int32       `json:"disk_gb"`
+	TrafficGb                pgtype.Int8 `json:"traffic_gb"`
+	BandwidthMbps            pgtype.Int4 `json:"bandwidth_mbps"`
+	Ipv4Count                int32       `json:"ipv4_count"`
+	Ipv6Count                int32       `json:"ipv6_count"`
+	NatPortCount             int32       `json:"nat_port_count"`
+	Virtualization           string      `json:"virtualization"`
+	BillingCycle             string      `json:"billing_cycle"`
+	PriceMinor               int64       `json:"price_minor"`
+	Currency                 string      `json:"currency"`
+	StockMode                string      `json:"stock_mode"`
+	StockQuantity            pgtype.Int4 `json:"stock_quantity"`
+	SetupFeeMinor            int64       `json:"setup_fee_minor"`
+	TrafficOveragePriceMinor int64       `json:"traffic_overage_price_minor"`
+	Region                   pgtype.Text `json:"region"`
+	Available                bool        `json:"available"`
 }
 
 func (q *Queries) ListActiveProductsAndPlans(ctx context.Context) ([]ListActiveProductsAndPlansRow, error) {
@@ -613,6 +655,8 @@ func (q *Queries) ListActiveProductsAndPlans(ctx context.Context) ([]ListActiveP
 			&i.ProductSlug,
 			&i.ProductNameI18n,
 			&i.DescriptionI18n,
+			&i.ProductType,
+			&i.Featured,
 			&i.PlanID,
 			&i.PlanSlug,
 			&i.PlanNameI18n,
@@ -629,6 +673,11 @@ func (q *Queries) ListActiveProductsAndPlans(ctx context.Context) ([]ListActiveP
 			&i.PriceMinor,
 			&i.Currency,
 			&i.StockMode,
+			&i.StockQuantity,
+			&i.SetupFeeMinor,
+			&i.TrafficOveragePriceMinor,
+			&i.Region,
+			&i.Available,
 		); err != nil {
 			return nil, err
 		}
@@ -641,7 +690,7 @@ func (q *Queries) ListActiveProductsAndPlans(ctx context.Context) ([]ListActiveP
 }
 
 const listInvoicesByUser = `-- name: ListInvoicesByUser :many
-SELECT id, invoice_no, user_id, subscription_id, order_id, status, amount_minor, currency, due_at, paid_at, created_at, updated_at FROM invoices WHERE user_id = $1 ORDER BY created_at DESC
+SELECT id, invoice_no, user_id, subscription_id, order_id, status, amount_minor, currency, due_at, paid_at, created_at, updated_at, billing_profile_snapshot FROM invoices WHERE user_id = $1 ORDER BY created_at DESC
 `
 
 func (q *Queries) ListInvoicesByUser(ctx context.Context, userID uuid.UUID) ([]Invoice, error) {
@@ -666,6 +715,7 @@ func (q *Queries) ListInvoicesByUser(ctx context.Context, userID uuid.UUID) ([]I
 			&i.PaidAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.BillingProfileSnapshot,
 		); err != nil {
 			return nil, err
 		}
@@ -678,29 +728,30 @@ func (q *Queries) ListInvoicesByUser(ctx context.Context, userID uuid.UUID) ([]I
 }
 
 const listOrdersByUser = `-- name: ListOrdersByUser :many
-SELECT orders.id, orders.order_no, orders.user_id, orders.status, orders.subtotal_minor, orders.discount_minor, orders.total_minor, orders.currency, orders.paid_at, orders.created_at, orders.updated_at, orders.idempotency_key, orders.kind, orders.subscription_id, payments.id AS payment_id, payments.status AS payment_status, payments.gateway
+SELECT orders.id, orders.order_no, orders.user_id, orders.status, orders.subtotal_minor, orders.discount_minor, orders.total_minor, orders.currency, orders.paid_at, orders.created_at, orders.updated_at, orders.idempotency_key, orders.kind, orders.subscription_id, orders.promotion_snapshot, payments.id AS payment_id, payments.status AS payment_status, payments.gateway
 FROM orders LEFT JOIN payments ON payments.order_id = orders.id
 WHERE orders.user_id = $1 ORDER BY orders.created_at DESC
 `
 
 type ListOrdersByUserRow struct {
-	ID             uuid.UUID          `json:"id"`
-	OrderNo        string             `json:"order_no"`
-	UserID         uuid.UUID          `json:"user_id"`
-	Status         string             `json:"status"`
-	SubtotalMinor  int64              `json:"subtotal_minor"`
-	DiscountMinor  int64              `json:"discount_minor"`
-	TotalMinor     int64              `json:"total_minor"`
-	Currency       string             `json:"currency"`
-	PaidAt         pgtype.Timestamptz `json:"paid_at"`
-	CreatedAt      pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
-	IdempotencyKey pgtype.Text        `json:"idempotency_key"`
-	Kind           string             `json:"kind"`
-	SubscriptionID *uuid.UUID         `json:"subscription_id"`
-	PaymentID      *uuid.UUID         `json:"payment_id"`
-	PaymentStatus  pgtype.Text        `json:"payment_status"`
-	Gateway        pgtype.Text        `json:"gateway"`
+	ID                uuid.UUID          `json:"id"`
+	OrderNo           string             `json:"order_no"`
+	UserID            uuid.UUID          `json:"user_id"`
+	Status            string             `json:"status"`
+	SubtotalMinor     int64              `json:"subtotal_minor"`
+	DiscountMinor     int64              `json:"discount_minor"`
+	TotalMinor        int64              `json:"total_minor"`
+	Currency          string             `json:"currency"`
+	PaidAt            pgtype.Timestamptz `json:"paid_at"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
+	IdempotencyKey    pgtype.Text        `json:"idempotency_key"`
+	Kind              string             `json:"kind"`
+	SubscriptionID    *uuid.UUID         `json:"subscription_id"`
+	PromotionSnapshot []byte             `json:"promotion_snapshot"`
+	PaymentID         *uuid.UUID         `json:"payment_id"`
+	PaymentStatus     pgtype.Text        `json:"payment_status"`
+	Gateway           pgtype.Text        `json:"gateway"`
 }
 
 func (q *Queries) ListOrdersByUser(ctx context.Context, userID uuid.UUID) ([]ListOrdersByUserRow, error) {
@@ -727,6 +778,7 @@ func (q *Queries) ListOrdersByUser(ctx context.Context, userID uuid.UUID) ([]Lis
 			&i.IdempotencyKey,
 			&i.Kind,
 			&i.SubscriptionID,
+			&i.PromotionSnapshot,
 			&i.PaymentID,
 			&i.PaymentStatus,
 			&i.Gateway,
@@ -820,12 +872,20 @@ func (q *Queries) MarkOutboxPublished(ctx context.Context, id uuid.UUID) error {
 const markOutboxRetry = `-- name: MarkOutboxRetry :exec
 UPDATE outbox_events
 SET attempts = attempts + 1,
+    status = CASE WHEN attempts + 1 >= 10 THEN 'dead_letter' ELSE 'pending' END,
+    dead_lettered_at = CASE WHEN attempts + 1 >= 10 THEN now() ELSE NULL END,
+    last_error = left($1, 2000),
     next_attempt_at = now() + make_interval(secs => LEAST(300, (1 << LEAST(attempts, 8))))
-WHERE id = $1
+WHERE id = $2
 `
 
-func (q *Queries) MarkOutboxRetry(ctx context.Context, id uuid.UUID) error {
-	_, err := q.db.Exec(ctx, markOutboxRetry, id)
+type MarkOutboxRetryParams struct {
+	ErrorMessage string    `json:"error_message"`
+	ID           uuid.UUID `json:"id"`
+}
+
+func (q *Queries) MarkOutboxRetry(ctx context.Context, arg MarkOutboxRetryParams) error {
+	_, err := q.db.Exec(ctx, markOutboxRetry, arg.ErrorMessage, arg.ID)
 	return err
 }
 

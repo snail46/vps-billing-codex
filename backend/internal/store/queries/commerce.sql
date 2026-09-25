@@ -1,12 +1,26 @@
 -- name: ListActiveProductsAndPlans :many
 SELECT products.id AS product_id, products.slug AS product_slug, products.name_i18n AS product_name_i18n,
-       products.description_i18n, plans.id AS plan_id, plans.slug AS plan_slug, plans.name_i18n AS plan_name_i18n,
+       products.description_i18n, products.product_type, products.featured,
+       plans.id AS plan_id, plans.slug AS plan_slug, plans.name_i18n AS plan_name_i18n,
        plans.cpu_cores, plans.memory_mb, plans.disk_gb, plans.traffic_gb, plans.bandwidth_mbps,
        plans.ipv4_count, plans.ipv6_count, plans.nat_port_count, plans.virtualization, plans.billing_cycle,
-       plans.price_minor, plans.currency, plans.stock_mode
+       plans.price_minor, plans.currency, plans.stock_mode, plans.stock_quantity, plans.setup_fee_minor,
+       plans.traffic_overage_price_minor, node_groups.region,
+       (CASE WHEN plans.stock_mode = 'manual' THEN COALESCE(plans.stock_quantity, 0) > 0
+            ELSE EXISTS (
+              SELECT 1 FROM nodes
+              WHERE nodes.node_group_id = plans.node_group_id AND nodes.status = 'online'
+                AND nodes.cpu_total - nodes.cpu_allocated - nodes.cpu_reserved >= plans.cpu_cores
+                AND nodes.memory_total_mb - nodes.memory_allocated_mb - nodes.memory_reserved_mb >= plans.memory_mb
+                AND nodes.disk_total_gb - nodes.disk_allocated_gb - nodes.disk_reserved_gb >= plans.disk_gb
+                AND nodes.ipv4_total - nodes.ipv4_allocated - nodes.ipv4_reserved >= plans.ipv4_count
+                AND nodes.ipv6_total - nodes.ipv6_allocated - nodes.ipv6_reserved >= plans.ipv6_count
+                AND nodes.nat_port_total - nodes.nat_port_allocated - nodes.nat_port_reserved >= plans.nat_port_count
+            ) END)::boolean AS available
 FROM products JOIN plans ON plans.product_id = products.id
+LEFT JOIN node_groups ON node_groups.id = plans.node_group_id
 WHERE products.status = 'active' AND plans.status = 'active'
-ORDER BY products.sort_order, products.slug, plans.price_minor, plans.slug;
+ORDER BY products.featured DESC, products.sort_order, products.slug, plans.price_minor, plans.slug;
 
 -- name: GetPlanForOrder :one
 SELECT plans.*, products.slug AS product_slug, products.name_i18n AS product_name_i18n,
@@ -16,7 +30,7 @@ WHERE plans.id = $1 AND plans.status = 'active' AND products.status = 'active';
 
 -- name: CreateOrder :one
 INSERT INTO orders (id, order_no, user_id, status, subtotal_minor, discount_minor, total_minor, currency, idempotency_key, kind, subscription_id)
-VALUES ($1, $2, $3, 'pending', $4, 0, $4, $5, $6, $7, $8)
+VALUES ($1, $2, $3, 'pending', $4, $5, $6, $7, $8, $9, $10)
 RETURNING *;
 
 -- name: GetOrderByUserIdempotency :one
@@ -27,8 +41,8 @@ INSERT INTO order_items (id, order_id, product_id, plan_id, quantity, unit_price
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9);
 
 -- name: CreateInvoice :one
-INSERT INTO invoices (id, invoice_no, user_id, subscription_id, order_id, status, amount_minor, currency, due_at)
-VALUES ($1, $2, $3, $4, $5, 'open', $6, $7, $8)
+INSERT INTO invoices (id, invoice_no, user_id, subscription_id, order_id, status, amount_minor, currency, due_at, billing_profile_snapshot)
+VALUES ($1, $2, $3, $4, $5, 'open', $6, $7, $8, COALESCE((SELECT to_jsonb(bp)-'user_id'-'updated_at' FROM billing_profiles bp WHERE bp.user_id=$3),'{}'::jsonb))
 RETURNING *;
 
 -- name: CreateInvoiceItem :exec
@@ -119,5 +133,8 @@ UPDATE outbox_events SET status = 'published', published_at = now() WHERE id = $
 -- name: MarkOutboxRetry :exec
 UPDATE outbox_events
 SET attempts = attempts + 1,
+    status = CASE WHEN attempts + 1 >= 10 THEN 'dead_letter' ELSE 'pending' END,
+    dead_lettered_at = CASE WHEN attempts + 1 >= 10 THEN now() ELSE NULL END,
+    last_error = left(sqlc.arg(error_message), 2000),
     next_attempt_at = now() + make_interval(secs => LEAST(300, (1 << LEAST(attempts, 8))))
-WHERE id = $1;
+WHERE id = sqlc.arg(id);

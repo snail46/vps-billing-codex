@@ -20,3 +20,5 @@ Subscription suspended 只推动 Instance desired_state=suspended；Reconciler �
 Subscription 时间迁移：active 在 period end 后进入 past_due 并使用 `period_end + grace_period`；past_due 在 grace deadline 后进入 suspended；设置 `cancel_at_period_end` 的 active 在 period end 进入 cancelled。成功续费可将 active/past_due/suspended 置回 active 并清除 grace/cancel 标记；终态拒绝续费。
 
 首次购买：Order paid→fulfilling→fulfilled；Subscription pending→active；Instance observed pending→provisioning→running。只有 Provider 验证 running 且 Reservation 原子转 committed 后才能激活 Subscription。失败保持 Operation error_code/trace；Provider 非重试错误将 Instance 标为 error 并释放仍为 reserved 的容量。
+
+V2 adds immutable Operation attempts (`running/retrying/succeeded/failed/cancelled/expired`), explicit deadlines, and parent-child retry lineage. NAT mappings move `pending→active→deleting→deleted` or `failed`, but every mutation is driven by an Operation. Usage periods move `open→closed|invoiced`. Outbox moves `pending→published`; ten failed deliveries move it to `dead_letter`, and an audited replay is the only transition back to pending.

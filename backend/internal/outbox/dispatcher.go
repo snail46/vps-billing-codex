@@ -35,7 +35,7 @@ func (d *Dispatcher) ProcessBatch(ctx context.Context) (int, error) {
 	}
 	for _, event := range events {
 		if _, err := d.redis.XAdd(ctx, &redis.XAddArgs{Stream: d.stream, Values: map[string]any{"event_id": event.ID.String(), "event_type": event.EventType, "payload": string(event.Payload)}}).Result(); err != nil {
-			if retryErr := queries.MarkOutboxRetry(ctx, event.ID); retryErr != nil {
+			if retryErr := queries.MarkOutboxRetry(ctx, db.MarkOutboxRetryParams{ID: event.ID, ErrorMessage: err.Error()}); retryErr != nil {
 				return 0, fmt.Errorf("publish outbox: %w; record retry: %v", err, retryErr)
 			}
 			if commitErr := tx.Commit(ctx); commitErr != nil {
@@ -45,7 +45,7 @@ func (d *Dispatcher) ProcessBatch(ctx context.Context) (int, error) {
 		}
 		if event.EventType == "operation.queued.v1" {
 			if _, err := d.redis.XAdd(ctx, &redis.XAddArgs{Stream: "operation-queue", Values: map[string]any{"event_id": event.ID.String(), "event_type": event.EventType, "payload": string(event.Payload)}}).Result(); err != nil {
-				if retryErr := queries.MarkOutboxRetry(ctx, event.ID); retryErr != nil {
+				if retryErr := queries.MarkOutboxRetry(ctx, db.MarkOutboxRetryParams{ID: event.ID, ErrorMessage: err.Error()}); retryErr != nil {
 					return 0, fmt.Errorf("publish operation queue: %w; record retry: %v", err, retryErr)
 				}
 				if commitErr := tx.Commit(ctx); commitErr != nil {

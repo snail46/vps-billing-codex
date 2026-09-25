@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -35,6 +36,10 @@ func (h *Handler) Register(router chi.Router) {
 		r.Get("/api/v1/instances/{id}", h.getInstance)
 		r.Get("/api/v1/instances/{id}/networks", h.listNetworks)
 		r.Get("/api/v1/instances/{id}/traffic", h.listTraffic)
+		r.Get("/api/v1/instances/{id}/usage", h.usageSummary)
+		r.Get("/api/v1/instances/{id}/port-forwards", h.listPortForwards)
+		r.Post("/api/v1/instances/{id}/port-forwards", h.addPortForward)
+		r.Delete("/api/v1/instances/{id}/port-forwards/{mappingID}", h.deletePortForward)
 		r.Post("/api/v1/instances/{id}/{action}", h.instanceAction)
 		r.Get("/api/v1/notifications", h.listNotifications)
 		r.Put("/api/v1/notifications/{id}/read", h.markNotificationRead)
@@ -43,6 +48,92 @@ func (h *Handler) Register(router chi.Router) {
 		r.Get("/api/v1/tickets/{id}", h.getTicket)
 		r.Post("/api/v1/tickets/{id}/messages", h.addTicketMessage)
 	})
+}
+
+func (h *Handler) listPortForwards(w http.ResponseWriter, r *http.Request) {
+	user, _ := identityhttp.UserFromContext(r.Context())
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	items, err := h.service.ListPortForwards(r.Context(), user.ID, id)
+	if err != nil {
+		h.writeError(w, r, err)
+		return
+	}
+	response.JSON(w, r, http.StatusOK, map[string]any{"items": items})
+}
+
+type portForwardInput struct {
+	Protocol    string `json:"protocol"`
+	PublicPort  int32  `json:"public_port"`
+	GuestPort   int32  `json:"guest_port"`
+	Description string `json:"description"`
+}
+
+func (h *Handler) addPortForward(w http.ResponseWriter, r *http.Request) {
+	user, _ := identityhttp.UserFromContext(r.Context())
+	instanceID, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	var input portForwardInput
+	if !decode(w, r, &input) {
+		return
+	}
+	input.Protocol, input.Description = strings.ToLower(strings.TrimSpace(input.Protocol)), strings.TrimSpace(input.Description)
+	if err := h.service.ValidatePortForwardAdd(r.Context(), user.ID, instanceID, input.Protocol, input.PublicPort, input.GuestPort, input.Description); err != nil {
+		h.writeError(w, r, err)
+		return
+	}
+	raw, err := json.Marshal(input)
+	if err != nil {
+		h.writeError(w, r, err)
+		return
+	}
+	deadline := time.Now().UTC().Add(10 * time.Minute)
+	steps := []operation.StepDefinition{{Key: "validate", Order: 1}, {Key: "provider", Order: 2}, {Key: "persist", Order: 3}}
+	created, err := h.operations.Create(r.Context(), operation.CreateRequest{Type: "port_forward_add", ResourceType: "instance", ResourceID: instanceID, IdempotencyKey: r.Header.Get("Idempotency-Key"), TraceID: middleware.TraceID(r.Context()), UserID: &user.ID, MaxRetries: 3, Steps: steps, Input: raw, DeadlineAt: &deadline})
+	if err != nil {
+		h.writeOperationError(w, r, err)
+		return
+	}
+	response.JSON(w, r, http.StatusAccepted, map[string]any{"operation_id": created.ID, "status": created.Status})
+}
+
+func (h *Handler) deletePortForward(w http.ResponseWriter, r *http.Request) {
+	user, _ := identityhttp.UserFromContext(r.Context())
+	instanceID, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	mappingID, err := uuid.Parse(chi.URLParam(r, "mappingID"))
+	if err != nil {
+		response.Error(w, r, http.StatusNotFound, "PORT_FORWARD_NOT_FOUND", "errors.portForwardNotFound")
+		return
+	}
+	if _, err = h.service.GetPortForward(r.Context(), user.ID, instanceID, mappingID); err != nil {
+		h.writeError(w, r, err)
+		return
+	}
+	deadline := time.Now().UTC().Add(10 * time.Minute)
+	steps := []operation.StepDefinition{{Key: "validate", Order: 1}, {Key: "provider", Order: 2}, {Key: "persist", Order: 3}}
+	created, err := h.operations.Create(r.Context(), operation.CreateRequest{Type: "port_forward_delete", ResourceType: "port_forward", ResourceID: mappingID, IdempotencyKey: r.Header.Get("Idempotency-Key"), TraceID: middleware.TraceID(r.Context()), UserID: &user.ID, MaxRetries: 3, Steps: steps, DeadlineAt: &deadline})
+	if err != nil {
+		h.writeOperationError(w, r, err)
+		return
+	}
+	response.JSON(w, r, http.StatusAccepted, map[string]any{"operation_id": created.ID, "status": created.Status})
+}
+
+func (h *Handler) writeOperationError(w http.ResponseWriter, r *http.Request, err error) {
+	if errors.Is(err, operation.ErrInvalidRequest) {
+		response.Error(w, r, http.StatusUnprocessableEntity, "IDEMPOTENCY_KEY_INVALID", "errors.idempotencyInvalid")
+	} else if errors.Is(err, operation.ErrIdempotencyConflict) {
+		response.Error(w, r, http.StatusConflict, "OPERATION_CONFLICT", "errors.instanceOperationConflict")
+	} else {
+		h.writeError(w, r, err)
+	}
 }
 
 func (h *Handler) listInstances(w http.ResponseWriter, r *http.Request) {
@@ -92,6 +183,19 @@ func (h *Handler) listTraffic(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	response.JSON(w, r, http.StatusOK, map[string]any{"items": items})
+}
+func (h *Handler) usageSummary(w http.ResponseWriter, r *http.Request) {
+	user, _ := identityhttp.UserFromContext(r.Context())
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	item, err := h.service.UsageSummary(r.Context(), user.ID, id)
+	if err != nil {
+		h.writeError(w, r, err)
+		return
+	}
+	response.JSON(w, r, http.StatusOK, item)
 }
 
 func (h *Handler) instanceAction(w http.ResponseWriter, r *http.Request) {
@@ -244,6 +348,10 @@ func (h *Handler) writeError(w http.ResponseWriter, r *http.Request, err error) 
 		response.Error(w, r, http.StatusConflict, "INSTANCE_STATE_CONFLICT", "errors.instanceStateConflict")
 	case errors.Is(err, portal.ErrTicketClosed):
 		response.Error(w, r, http.StatusConflict, "TICKET_CLOSED", "errors.ticketClosed")
+	case errors.Is(err, portal.ErrUnsupported):
+		response.Error(w, r, http.StatusUnprocessableEntity, "UNSUPPORTED_OPERATION", "errors.unsupportedOperation")
+	case errors.Is(err, portal.ErrQuotaExceeded):
+		response.Error(w, r, http.StatusConflict, "PORT_FORWARD_QUOTA_EXCEEDED", "errors.portForwardQuotaExceeded")
 	default:
 		response.Error(w, r, http.StatusInternalServerError, "INTERNAL_ERROR", "errors.internal")
 	}

@@ -82,6 +82,7 @@ CREATE TABLE node_groups (
   name varchar(255) NOT NULL UNIQUE,
   region varchar(128) NOT NULL,
   status varchar(64) NOT NULL CHECK (status IN ('active', 'disabled')),
+  placement_policy varchar(32) NOT NULL DEFAULT 'spread' CHECK (placement_policy IN ('spread','pack')),
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
@@ -93,6 +94,8 @@ CREATE TABLE products (
   description_i18n jsonb NOT NULL DEFAULT '{}'::jsonb,
   status varchar(64) NOT NULL,
   sort_order integer NOT NULL DEFAULT 0,
+  product_type varchar(32) NOT NULL DEFAULT 'vps' CHECK (product_type IN ('vps','nat_vps')),
+  featured boolean NOT NULL DEFAULT false,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
@@ -118,10 +121,23 @@ CREATE TABLE plans (
   currency varchar(3) NOT NULL,
   stock_mode varchar(64) NOT NULL DEFAULT 'automatic',
   default_image_id varchar(255) NOT NULL DEFAULT 'ubuntu-24.04',
+  stock_quantity integer CHECK (stock_quantity IS NULL OR stock_quantity >= 0),
+  setup_fee_minor bigint NOT NULL DEFAULT 0 CHECK (setup_fee_minor >= 0),
+  traffic_overage_price_minor bigint NOT NULL DEFAULT 0 CHECK (traffic_overage_price_minor >= 0),
+  metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
-  UNIQUE(product_id, slug)
+  UNIQUE(product_id, slug),
+  CONSTRAINT plans_stock_mode_valid CHECK (stock_mode IN ('automatic','manual'))
 );
+
+CREATE INDEX ix_catalog_active_order
+ON products(featured DESC, sort_order, slug)
+WHERE status = 'active';
+
+CREATE INDEX ix_plans_catalog_active
+ON plans(product_id, price_minor, slug)
+WHERE status = 'active';
 
 CREATE TABLE providers (
   id uuid PRIMARY KEY,
@@ -206,7 +222,8 @@ CREATE TABLE orders (
   idempotency_key varchar(255),
   paid_at timestamptz,
   created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now()
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  promotion_snapshot jsonb
 );
 
 CREATE TABLE order_items (
@@ -234,6 +251,7 @@ CREATE TABLE payments (
   idempotency_key varchar(255) NOT NULL UNIQUE,
   gateway_payload jsonb NOT NULL DEFAULT '{}'::jsonb,
   paid_at timestamptz,
+  refunded_minor bigint NOT NULL DEFAULT 0 CHECK(refunded_minor >= 0 AND refunded_minor <= amount_minor),
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
@@ -356,7 +374,8 @@ CREATE TABLE invoices (
   due_at timestamptz,
   paid_at timestamptz,
   created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now()
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  billing_profile_snapshot jsonb NOT NULL DEFAULT '{}'::jsonb
 );
 
 CREATE UNIQUE INDEX ux_invoices_order ON invoices(order_id) WHERE order_id IS NOT NULL;
@@ -424,14 +443,24 @@ CREATE TABLE port_forwards (
   public_port integer NOT NULL CHECK (public_port BETWEEN 1 AND 65535),
   guest_port integer NOT NULL CHECK (guest_port BETWEEN 1 AND 65535),
   description varchar(255),
-  status varchar(64) NOT NULL,
+  status varchar(64) NOT NULL CHECK (status IN ('pending','active','deleting','failed','deleted')),
   provider_mapping_id varchar(255),
+  error_code varchar(128),
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE UNIQUE INDEX ux_port_forward
-ON port_forwards(public_ip, protocol, public_port);
+CREATE UNIQUE INDEX ux_port_forward_active
+ON port_forwards(public_ip, protocol, public_port)
+WHERE status <> 'deleted';
+
+CREATE UNIQUE INDEX ux_port_forward_provider_mapping
+ON port_forwards(instance_id, provider_mapping_id)
+WHERE provider_mapping_id IS NOT NULL AND status <> 'deleted';
+
+CREATE INDEX ix_port_forwards_instance_active
+ON port_forwards(instance_id, created_at)
+WHERE status <> 'deleted';
 
 CREATE TABLE traffic_usage (
   id uuid PRIMARY KEY,
@@ -465,6 +494,9 @@ CREATE TABLE operations (
   trace_id varchar(255) NOT NULL,
   user_id uuid REFERENCES users(id),
   actor_admin_id uuid REFERENCES admins(id),
+  input jsonb NOT NULL DEFAULT '{}'::jsonb,
+  deadline_at timestamptz,
+  parent_operation_id uuid REFERENCES operations(id),
   next_attempt_at timestamptz NOT NULL DEFAULT now(),
   heartbeat_at timestamptz,
   started_at timestamptz,
@@ -474,6 +506,83 @@ CREATE TABLE operations (
   CONSTRAINT operations_status_valid CHECK (status IN ('queued', 'running', 'waiting_provider', 'waiting_resource', 'verifying', 'retrying', 'succeeded', 'failed', 'cancelled'))
 );
 
+CREATE TABLE usage_samples (
+  id uuid PRIMARY KEY,
+  provider_id uuid NOT NULL REFERENCES providers(id),
+  instance_id uuid NOT NULL REFERENCES instances(id),
+  source_event_id varchar(255) NOT NULL,
+  period_start timestamptz NOT NULL,
+  period_end timestamptz NOT NULL,
+  rx_bytes bigint NOT NULL CHECK (rx_bytes >= 0),
+  tx_bytes bigint NOT NULL CHECK (tx_bytes >= 0),
+  collected_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE(provider_id, source_event_id),
+  CHECK (period_end > period_start)
+);
+
+CREATE INDEX ix_usage_samples_instance_period
+ON usage_samples(instance_id, period_start, period_end);
+
+CREATE TABLE usage_billing_periods (
+  id uuid PRIMARY KEY,
+  subscription_id uuid NOT NULL REFERENCES subscriptions(id),
+  instance_id uuid NOT NULL REFERENCES instances(id),
+  period_start timestamptz NOT NULL,
+  period_end timestamptz NOT NULL,
+  included_bytes bigint NOT NULL CHECK (included_bytes >= 0),
+  used_bytes bigint NOT NULL DEFAULT 0 CHECK (used_bytes >= 0),
+  overage_bytes bigint NOT NULL DEFAULT 0 CHECK (overage_bytes >= 0),
+  overage_price_minor_per_gb bigint NOT NULL CHECK (overage_price_minor_per_gb >= 0),
+  amount_minor bigint NOT NULL DEFAULT 0 CHECK (amount_minor >= 0),
+  currency varchar(3) NOT NULL,
+  status varchar(32) NOT NULL DEFAULT 'open' CHECK (status IN ('open','closed','invoiced')),
+  invoice_id uuid REFERENCES invoices(id),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE(subscription_id, period_start)
+);
+
+CREATE INDEX ix_usage_billing_periods_due
+ON usage_billing_periods(period_end, id)
+WHERE status = 'open';
+
+CREATE TABLE usage_charges (
+  id uuid PRIMARY KEY,
+  usage_billing_period_id uuid NOT NULL UNIQUE REFERENCES usage_billing_periods(id),
+  invoice_id uuid NOT NULL REFERENCES invoices(id),
+  ledger_transaction_id uuid NOT NULL UNIQUE REFERENCES ledger_transactions(id),
+  amount_minor bigint NOT NULL CHECK (amount_minor > 0),
+  currency varchar(3) NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE provider_health_checks (
+  id uuid PRIMARY KEY,
+  provider_id uuid NOT NULL REFERENCES providers(id),
+  status varchar(32) NOT NULL CHECK (status IN ('healthy','degraded','unavailable')),
+  version varchar(128),
+  latency_ms integer NOT NULL CHECK (latency_ms >= 0),
+  capabilities jsonb NOT NULL DEFAULT '{}'::jsonb,
+  details jsonb NOT NULL DEFAULT '{}'::jsonb,
+  error_code varchar(128),
+  checked_at timestamptz NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX ix_provider_health_checks_provider
+ON provider_health_checks(provider_id, checked_at DESC);
+
+CREATE INDEX ix_providers_health_due
+ON providers(last_health_check_at, id)
+WHERE status <> 'disabled';
+
+ALTER TABLE port_forwards
+  ADD COLUMN operation_id uuid REFERENCES operations(id);
+
+CREATE UNIQUE INDEX ux_port_forwards_operation
+ON port_forwards(operation_id)
+WHERE operation_id IS NOT NULL;
+
 CREATE INDEX ix_operations_dispatch
 ON operations(status, next_attempt_at, created_at);
 
@@ -481,11 +590,20 @@ CREATE INDEX ix_operations_user
 ON operations(user_id, created_at DESC)
 WHERE user_id IS NOT NULL;
 
+CREATE INDEX ix_operations_deadline
+ON operations(deadline_at)
+WHERE deadline_at IS NOT NULL AND status IN ('queued','running','waiting_provider','waiting_resource','verifying','retrying');
+
 CREATE UNIQUE INDEX ux_operations_active_instance_action
 ON operations(resource_id)
 WHERE resource_type = 'instance'
   AND type IN ('start', 'stop', 'restart', 'reinstall')
   AND status IN ('queued', 'running', 'waiting_provider', 'waiting_resource', 'verifying', 'retrying');
+
+CREATE UNIQUE INDEX ux_operations_active_port_forward_add
+ON operations(resource_id)
+WHERE resource_type = 'instance' AND type = 'port_forward_add'
+  AND status IN ('queued','running','waiting_provider','waiting_resource','verifying','retrying');
 
 CREATE TABLE operation_steps (
   id uuid PRIMARY KEY,
@@ -505,6 +623,21 @@ CREATE TABLE operation_steps (
   UNIQUE(operation_id, step_key),
   CONSTRAINT operation_steps_status_valid CHECK (status IN ('pending', 'running', 'waiting', 'succeeded', 'failed', 'skipped'))
 );
+
+CREATE TABLE operation_attempts (
+  id uuid PRIMARY KEY,
+  operation_id uuid NOT NULL REFERENCES operations(id),
+  attempt integer NOT NULL,
+  status varchar(32) NOT NULL CHECK (status IN ('running','retrying','succeeded','failed','cancelled','expired')),
+  error_code varchar(128),
+  error_message text,
+  worker_id varchar(255),
+  started_at timestamptz NOT NULL DEFAULT now(),
+  finished_at timestamptz,
+  UNIQUE(operation_id, attempt)
+);
+
+CREATE INDEX ix_operation_attempts_operation ON operation_attempts(operation_id, attempt DESC);
 
 CREATE TABLE resource_reservations (
   id uuid PRIMARY KEY,
@@ -526,6 +659,23 @@ CREATE TABLE resource_reservations (
   )
 );
 
+CREATE TABLE scheduler_decisions (
+  id uuid PRIMARY KEY,
+  operation_id uuid NOT NULL REFERENCES operations(id),
+  node_group_id uuid NOT NULL REFERENCES node_groups(id),
+  selected_node_id uuid REFERENCES nodes(id),
+  placement_policy varchar(32) NOT NULL,
+  candidate_count integer NOT NULL CHECK (candidate_count >= 0),
+  requested_resources jsonb NOT NULL,
+  required_capabilities jsonb NOT NULL,
+  selected_score numeric(12,6),
+  result varchar(32) NOT NULL CHECK (result IN ('selected','exhausted')),
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX ix_scheduler_decisions_operation ON scheduler_decisions(operation_id, created_at DESC);
+CREATE INDEX ix_scheduler_decisions_group ON scheduler_decisions(node_group_id, created_at DESC);
+
 CREATE INDEX ix_resource_reservations_expiry
 ON resource_reservations(status, expires_at);
 
@@ -539,7 +689,11 @@ CREATE TABLE outbox_events (
   attempts integer NOT NULL DEFAULT 0,
   next_attempt_at timestamptz NOT NULL DEFAULT now(),
   created_at timestamptz NOT NULL DEFAULT now(),
-  published_at timestamptz
+  published_at timestamptz,
+  last_error text,
+  dead_lettered_at timestamptz,
+  replayed_at timestamptz,
+  replayed_by uuid REFERENCES admins(id)
 );
 
 CREATE TABLE notifications (
@@ -638,6 +792,8 @@ CREATE INDEX ix_outbox_pending_dispatch
 ON outbox_events(next_attempt_at, created_at)
 WHERE status = 'pending';
 
+CREATE INDEX ix_outbox_dead_letters ON outbox_events(dead_lettered_at DESC) WHERE status = 'dead_letter';
+
 CREATE INDEX ix_operations_failed_recent
 ON operations(created_at DESC)
 WHERE status = 'failed';
@@ -675,3 +831,29 @@ CREATE TABLE agent_port_forwards (
   description text NOT NULL DEFAULT '', updated_at timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY(node_id,instance_id,protocol,host_port)
 );
+
+CREATE TABLE promotions (
+  id uuid PRIMARY KEY, code varchar(64) NOT NULL UNIQUE,
+  status varchar(32) NOT NULL CHECK(status IN ('active','disabled')),
+  discount_type varchar(16) NOT NULL CHECK(discount_type IN ('fixed','percent')),
+  discount_value bigint NOT NULL CHECK(discount_value > 0), currency varchar(3),
+  starts_at timestamptz, ends_at timestamptz, max_redemptions integer,
+  redemption_count integer NOT NULL DEFAULT 0, created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now(),
+  CHECK(discount_type <> 'percent' OR discount_value <= 10000), CHECK(discount_type <> 'fixed' OR currency IS NOT NULL)
+);
+CREATE TABLE promotion_redemptions (
+  id uuid PRIMARY KEY, promotion_id uuid NOT NULL REFERENCES promotions(id), order_id uuid NOT NULL UNIQUE REFERENCES orders(id),
+  user_id uuid NOT NULL REFERENCES users(id), discount_minor bigint NOT NULL CHECK(discount_minor >= 0), snapshot jsonb NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE TABLE billing_profiles (
+  user_id uuid PRIMARY KEY REFERENCES users(id), legal_name varchar(255) NOT NULL DEFAULT '', tax_id varchar(128) NOT NULL DEFAULT '',
+  country_code varchar(2) NOT NULL DEFAULT '', address jsonb NOT NULL DEFAULT '{}'::jsonb, updated_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE TABLE refunds (
+  id uuid PRIMARY KEY, payment_id uuid NOT NULL REFERENCES payments(id), amount_minor bigint NOT NULL CHECK(amount_minor > 0),
+  currency varchar(3) NOT NULL, reason text NOT NULL, status varchar(32) NOT NULL CHECK(status IN ('succeeded','failed')),
+  idempotency_key varchar(255) NOT NULL UNIQUE, ledger_transaction_id uuid NOT NULL REFERENCES ledger_transactions(id),
+  created_by uuid REFERENCES admins(id), created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX ix_refunds_payment ON refunds(payment_id,created_at);

@@ -13,14 +13,17 @@ import (
 	"vps-billing/backend/internal/operation"
 	"vps-billing/backend/internal/outbox"
 	platformruntime "vps-billing/backend/internal/platform/runtime"
+	"vps-billing/backend/internal/portforward"
 	"vps-billing/backend/internal/provider"
 	"vps-billing/backend/internal/provider/lxdapi"
 	providermock "vps-billing/backend/internal/provider/mock"
 	runmanprovider "vps-billing/backend/internal/provider/runman"
+	"vps-billing/backend/internal/providerhealth"
 	"vps-billing/backend/internal/provision"
 	"vps-billing/backend/internal/reconcile"
 	"vps-billing/backend/internal/runman"
 	"vps-billing/backend/internal/subscription"
+	"vps-billing/backend/internal/usage"
 	workerapp "vps-billing/backend/internal/worker"
 )
 
@@ -76,6 +79,13 @@ func main() {
 			os.Exit(1)
 		}
 	}
+	portForwardWorkflow := portforward.NewWorkflow(portforward.NewRepository(postgresClient.Pool()), providerRegistry)
+	for _, action := range []string{"port_forward_add", "port_forward_delete"} {
+		if err := workflowRegistry.Register(action, portForwardWorkflow); err != nil {
+			logger.Error("port forward workflow registration failed", "action", action, "error", err)
+			os.Exit(1)
+		}
+	}
 	consumerName, hostnameErr := os.Hostname()
 	if hostnameErr != nil || consumerName == "" {
 		consumerName = "worker"
@@ -84,6 +94,8 @@ func main() {
 		outbox.NewDispatcher(postgresClient.Pool(), redisClient.Raw()),
 		provision.NewTriggerConsumer(provisionRepository, redisClient.Raw(), consumerName),
 		operation.NewRetryScheduler(operationRepository),
+		providerhealth.New(postgresClient.Pool(), providerRegistry),
+		usage.New(postgresClient.Pool(), providerRegistry),
 		reconcile.New(postgresClient.Pool(), providerRegistry, operation.NewService(operationRepository), operationRepository),
 		operation.NewQueueConsumer(operationRepository, redisClient.Raw(), workflowRegistry, consumerName),
 		subscription.NewLifecycleProcessor(postgresClient.Pool(), settings.SubscriptionGracePeriod),

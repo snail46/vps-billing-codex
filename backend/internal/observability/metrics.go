@@ -8,6 +8,10 @@ import (
 
 type Snapshot struct {
 	OutboxPending    int64
+	OutboxDead       int64
+	OutboxOldestSecs float64
+	UsageOverdue     int64
+	UsageLagSecs     float64
 	OperationsActive int64
 	OperationsFailed int64
 	NodesOffline     int64
@@ -30,6 +34,10 @@ func (m *PostgresMetrics) Snapshot(ctx context.Context) (Snapshot, error) {
 	var snapshot Snapshot
 	err := m.pool.QueryRow(ctx, `SELECT
 		(SELECT count(*) FROM outbox_events WHERE status='pending'),
+		(SELECT count(*) FROM outbox_events WHERE status='dead_letter'),
+		(SELECT COALESCE(extract(epoch FROM now()-min(created_at)),0) FROM outbox_events WHERE status='pending'),
+		(SELECT count(*) FROM usage_billing_periods WHERE status='open' AND period_end<now()),
+		(SELECT COALESCE(extract(epoch FROM now()-max(period_end)),0) FROM usage_samples),
 		(SELECT count(*) FROM operations WHERE status IN ('queued','running','waiting_provider','waiting_resource','verifying','retrying')),
 		(SELECT count(*) FROM operations WHERE status='failed' AND created_at>now()-interval '24 hours'),
 		(SELECT count(*) FROM nodes WHERE status<>'online'),
@@ -38,7 +46,7 @@ func (m *PostgresMetrics) Snapshot(ctx context.Context) (Snapshot, error) {
 		(SELECT COALESCE(sum(cpu_total-cpu_allocated-cpu_reserved),0) FROM nodes WHERE status='online'),
 		(SELECT COALESCE(sum(memory_total_mb-memory_allocated_mb-memory_reserved_mb),0) FROM nodes WHERE status='online'),
 		(SELECT COALESCE(sum(disk_total_gb-disk_allocated_gb-disk_reserved_gb),0) FROM nodes WHERE status='online')`).Scan(
-		&snapshot.OutboxPending, &snapshot.OperationsActive, &snapshot.OperationsFailed,
+		&snapshot.OutboxPending, &snapshot.OutboxDead, &snapshot.OutboxOldestSecs, &snapshot.UsageOverdue, &snapshot.UsageLagSecs, &snapshot.OperationsActive, &snapshot.OperationsFailed,
 		&snapshot.NodesOffline, &snapshot.AgentsStale, &snapshot.Payments24h,
 		&snapshot.CPUAvailable, &snapshot.MemoryAvailable, &snapshot.DiskAvailable,
 	)

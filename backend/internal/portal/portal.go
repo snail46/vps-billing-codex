@@ -15,6 +15,8 @@ var (
 	ErrInvalidRequest = errors.New("portal request is invalid")
 	ErrStateConflict  = errors.New("instance state does not allow the action")
 	ErrTicketClosed   = errors.New("ticket is closed")
+	ErrUnsupported    = errors.New("capability is not supported")
+	ErrQuotaExceeded  = errors.New("quota is exceeded")
 )
 
 type Instance struct {
@@ -55,6 +57,37 @@ type Traffic struct {
 	RXBytes     int64     `json:"rx_bytes"`
 	TXBytes     int64     `json:"tx_bytes"`
 	Source      string    `json:"source"`
+}
+type UsageSummary struct {
+	PeriodStart    time.Time `json:"period_start"`
+	PeriodEnd      time.Time `json:"period_end"`
+	IncludedBytes  int64     `json:"included_bytes"`
+	UsedBytes      int64     `json:"used_bytes"`
+	OverageBytes   int64     `json:"overage_bytes"`
+	EstimatedMinor int64     `json:"estimated_minor"`
+	Currency       string    `json:"currency"`
+}
+
+type PortForward struct {
+	ID                uuid.UUID  `json:"id"`
+	Protocol          string     `json:"protocol"`
+	PublicIP          string     `json:"public_ip"`
+	PublicPort        int32      `json:"public_port"`
+	GuestPort         int32      `json:"guest_port"`
+	Description       string     `json:"description"`
+	Status            string     `json:"status"`
+	ProviderMappingID *string    `json:"provider_mapping_id,omitempty"`
+	OperationID       *uuid.UUID `json:"operation_id,omitempty"`
+	ErrorCode         *string    `json:"error_code,omitempty"`
+	CreatedAt         time.Time  `json:"created_at"`
+	UpdatedAt         time.Time  `json:"updated_at"`
+}
+
+type PortForwardContext struct {
+	InstanceID uuid.UUID
+	Quota      int32
+	Active     int32
+	Supported  bool
 }
 
 type Notification struct {
@@ -103,6 +136,10 @@ type Repository interface {
 	GetInstance(context.Context, uuid.UUID, uuid.UUID) (Instance, error)
 	ListNetworks(context.Context, uuid.UUID, uuid.UUID) ([]Network, error)
 	ListTraffic(context.Context, uuid.UUID, uuid.UUID) ([]Traffic, error)
+	UsageSummary(context.Context, uuid.UUID, uuid.UUID) (UsageSummary, error)
+	ListPortForwards(context.Context, uuid.UUID, uuid.UUID) ([]PortForward, error)
+	PortForwardContext(context.Context, uuid.UUID, uuid.UUID) (PortForwardContext, error)
+	GetPortForward(context.Context, uuid.UUID, uuid.UUID, uuid.UUID) (PortForward, error)
 	ActionContext(context.Context, uuid.UUID, uuid.UUID) (ActionContext, error)
 	ListNotifications(context.Context, uuid.UUID) ([]Notification, error)
 	MarkNotificationRead(context.Context, uuid.UUID, uuid.UUID) error
@@ -126,6 +163,32 @@ func (s *Service) ListNetworks(ctx context.Context, userID, id uuid.UUID) ([]Net
 }
 func (s *Service) ListTraffic(ctx context.Context, userID, id uuid.UUID) ([]Traffic, error) {
 	return s.repository.ListTraffic(ctx, userID, id)
+}
+func (s *Service) UsageSummary(ctx context.Context, userID, id uuid.UUID) (UsageSummary, error) {
+	return s.repository.UsageSummary(ctx, userID, id)
+}
+func (s *Service) ListPortForwards(ctx context.Context, userID, id uuid.UUID) ([]PortForward, error) {
+	return s.repository.ListPortForwards(ctx, userID, id)
+}
+func (s *Service) ValidatePortForwardAdd(ctx context.Context, userID, instanceID uuid.UUID, protocol string, publicPort, guestPort int32, description string) error {
+	protocol = strings.ToLower(strings.TrimSpace(protocol))
+	if (protocol != "tcp" && protocol != "udp") || publicPort < 1 || publicPort > 65535 || guestPort < 1 || guestPort > 65535 || len(strings.TrimSpace(description)) > 255 {
+		return ErrInvalidRequest
+	}
+	value, err := s.repository.PortForwardContext(ctx, userID, instanceID)
+	if err != nil {
+		return err
+	}
+	if !value.Supported {
+		return ErrUnsupported
+	}
+	if value.Quota <= 0 || value.Active >= value.Quota {
+		return ErrQuotaExceeded
+	}
+	return nil
+}
+func (s *Service) GetPortForward(ctx context.Context, userID, instanceID, id uuid.UUID) (PortForward, error) {
+	return s.repository.GetPortForward(ctx, userID, instanceID, id)
 }
 func (s *Service) ActionContext(ctx context.Context, userID, id uuid.UUID) (ActionContext, error) {
 	return s.repository.ActionContext(ctx, userID, id)

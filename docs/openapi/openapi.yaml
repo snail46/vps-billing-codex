@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: VPS Billing Platform API
-  version: 1.0.0
+  version: 2.0.0
   license: {name: Proprietary}
 servers:
   - url: /api/v1
@@ -157,6 +157,7 @@ paths:
               properties:
                 plan_id: {type: string, format: uuid}
                 quantity: {type: integer, minimum: 1}
+                promotion_code: {type: string, maxLength: 64}
       responses:
         "201": {description: "Order, invoice, and pending payment created"}
         "401": {$ref: "#/components/responses/Unauthenticated"}
@@ -498,6 +499,37 @@ paths:
       security: [{adminSession: []}]
       parameters: [{name: key, in: path, required: true, schema: {type: string}}]
       responses: {"200": {description: Masked setting}}
+  /billing-profile:
+    get: {summary: Get the authenticated user's tax and billing profile, responses: {"200": {description: Billing profile}}}
+    put: {summary: Update the authenticated user's tax and billing profile, parameters: [{$ref: "#/components/parameters/CSRFToken"}], responses: {"200": {description: Updated billing profile}, "422": {$ref: "#/components/responses/ValidationFailure"}}}
+  /instances/{id}/usage:
+    get: {summary: Get current usage allowance and estimated charge, parameters: [{$ref: "#/components/parameters/Id"}], responses: {"200": {description: Usage summary}, "404": {$ref: "#/components/responses/NotFound"}}}
+  /instances/{id}/port-forwards:
+    get: {summary: List owned NAT port-forward mappings, parameters: [{$ref: "#/components/parameters/Id"}], responses: {"200": {description: Port-forward mappings}}}
+    post: {summary: Queue a NAT port-forward addition, parameters: [{$ref: "#/components/parameters/Id"}, {$ref: "#/components/parameters/CSRFToken"}], responses: {"202": {description: Accepted, content: {application/json: {schema: {$ref: "#/components/schemas/OperationAccepted"}}}}, "409": {$ref: "#/components/responses/Conflict"}}}
+  /instances/{id}/port-forwards/{mapping_id}:
+    delete:
+      summary: Queue deletion of an owned NAT port-forward mapping
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - {name: mapping_id, in: path, required: true, schema: {type: string, format: uuid}}
+        - $ref: "#/components/parameters/CSRFToken"
+      responses: {"202": {description: Accepted, content: {application/json: {schema: {$ref: "#/components/schemas/OperationAccepted"}}}}, "404": {$ref: "#/components/responses/NotFound"}}
+  /admin/providers/{id}:
+    get: {summary: Get secret-safe provider health and inventory detail, security: [{adminSession: []}], parameters: [{$ref: "#/components/parameters/ResourceID"}], responses: {"200": {description: Provider detail}, "403": {$ref: "#/components/responses/Forbidden"}}}
+  /admin/operations/{id}/retry:
+    post: {summary: Create an audited child retry operation, security: [{adminSession: []}], parameters: [{$ref: "#/components/parameters/ResourceID"}, {$ref: "#/components/parameters/CSRFToken"}], responses: {"202": {description: Retry accepted}, "409": {$ref: "#/components/responses/Conflict"}}}
+  /admin/operations/{id}/cancel:
+    post: {summary: Cancel an operation that has not started, security: [{adminSession: []}], parameters: [{$ref: "#/components/parameters/ResourceID"}, {$ref: "#/components/parameters/CSRFToken"}], responses: {"200": {description: Cancelled operation}, "409": {$ref: "#/components/responses/Conflict"}}}
+  /admin/usage:
+    get: {summary: List rated usage periods and revenue diagnostics, security: [{adminSession: []}], responses: {"200": {description: Usage periods}, "403": {$ref: "#/components/responses/Forbidden"}}}
+  /admin/dead-letters:
+    get: {summary: List secret-safe dead-letter events, security: [{adminSession: []}], responses: {"200": {description: Dead letters}}}
+  /admin/dead-letters/{id}/replay:
+    post: {summary: Replay a dead-letter event with audit, security: [{adminSession: []}], parameters: [{$ref: "#/components/parameters/ResourceID"}, {$ref: "#/components/parameters/CSRFToken"}], responses: {"202": {description: Replay accepted}, "403": {$ref: "#/components/responses/Forbidden"}}}
+  /admin/payments/{id}/refunds:
+    post: {summary: Create an idempotent ledger-backed refund, security: [{adminSession: []}], parameters: [{$ref: "#/components/parameters/ResourceID"}, {$ref: "#/components/parameters/CSRFToken"}], responses: {"201": {description: Refund created}, "409": {$ref: "#/components/responses/Conflict"}}}
+
 components:
   securitySchemes:
     userSession: {type: apiKey, in: cookie, name: vps_user_session}

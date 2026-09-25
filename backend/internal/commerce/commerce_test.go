@@ -2,6 +2,7 @@ package commerce
 
 import (
 	"errors"
+	"math"
 	"testing"
 
 	"github.com/google/uuid"
@@ -21,6 +22,20 @@ func TestValidateBalancedLedger(t *testing.T) {
 	balanced[1].AmountMinor = 99
 	if err := validateBalanced(balanced); err == nil {
 		t.Fatal("unbalanced ledger was accepted")
+	}
+}
+
+func TestPromotionDiscountUsesMinorUnitIntegerMath(t *testing.T) {
+	for _, test := range []struct {
+		total, value int64
+		kind         string
+		want         int64
+	}{
+		{1001, 1000, "percent", 100}, {100, 500, "fixed", 100}, {math.MaxInt64, 10000, "percent", math.MaxInt64},
+	} {
+		if got := promotionDiscount(test.total, test.value, test.kind); got != test.want {
+			t.Fatalf("discount(%d,%d,%s)=%d want %d", test.total, test.value, test.kind, got, test.want)
+		}
 	}
 }
 

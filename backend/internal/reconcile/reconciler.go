@@ -42,11 +42,16 @@ func New(pool *pgxpool.Pool, providers providercontract.Resolver, operations ope
 
 func (p *Processor) ProcessBatch(ctx context.Context) (int, error) {
 	now := p.now().UTC()
-	total, err := p.operationRepository.RecoverStuck(ctx, now.Add(-defaultOperationMaxAge), p.batchSize)
+	total, err := p.operationRepository.ExpireDeadlines(ctx, now, p.batchSize)
+	if err != nil {
+		return total, fmt.Errorf("expire operation deadlines: %w", err)
+	}
+	count, err := p.operationRepository.RecoverStuck(ctx, now.Add(-defaultOperationMaxAge), p.batchSize)
+	total += count
 	if err != nil {
 		return total, fmt.Errorf("recover stuck operations: %w", err)
 	}
-	count, err := p.expireReservations(ctx, now)
+	count, err = p.expireReservations(ctx, now)
 	total += count
 	if err != nil {
 		return total, fmt.Errorf("expire reservations: %w", err)

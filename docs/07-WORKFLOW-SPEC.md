@@ -21,3 +21,5 @@ Phase 3 完成 invoice/payment/ledger/extend/update due 的商业事务边界；
 Phase 6 的 `payment.succeeded.v1` Trigger 只处理 purchase Order，并以 `(source_order_id, source_item_index)` 幂等创建 pending Subscription、Instance、Provision Operation、Steps 与 queued Outbox；renewal 不触发开通。Provision 使用 Operation ID 作为 Scheduler/Provider 幂等根，按真实步骤更新进度，不按时间伪造。最终化事务提交 Reservation、激活 Subscription、完成全部实例均已 active 的 Order、创建 ready Notification 和版本化事件。
 
 Phase 11 Reconciler 是 Worker Processor，不直接执行实例变更。它刷新 Provider observed state，并将 running/stopped/suspended 漂移转换为带幂等键的 Start/Stop/Suspend Operation，继续走相同 Workflow。stale Operation 的重排队和 Outbox 同事务；终态 Operation 的过期 Reservation 才能释放，避免仍在执行的 Workflow 被回收容量。Redis consumer pending message 由 replacement Worker 使用 XAUTOCLAIM 接管。
+
+V2 registers NAT add/delete workflows beside provision and instance actions. They validate ownership/capability/quota before queueing, call only the Provider layer, verify with `ListPortForwards`, then persist the platform mapping and Audit. Provider health, usage collection/rating, retry scheduling, lifecycle, reconciliation and Outbox dispatch remain bounded Worker processors; none runs as a blocking HTTP request.

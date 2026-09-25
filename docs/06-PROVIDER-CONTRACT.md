@@ -28,3 +28,5 @@ Provider 数据库配置示例（不包含 Secret）：`endpoint=https://lxd.exa
 V1 Agent Provider 为 `runman`。独立 gRPC Gateway 接受由 Agent 发起的双向流，使用 Bearer Token 的 SHA-256 摘要鉴权；生产传输强制 TLS。Heartbeat 更新 Node/VM observed state、流量和镜像目录；Worker 仅向数据库写入带唯一 idempotency key 的 durable command，Gateway 对在线连接投递并在重连时以相同 command_id 重放 queued/dispatched command。Agent message_id 全局去重，CommandResult 为终态；NAT 列表使用协议专用 PortForwardList 回执。业务层仍只依赖本 Contract。
 
 Runman Create 使用平台 Instance UUID 作为协议 vm_id，因此“执行成功但响应丢失”重试不会创建第二台 VM。Reinstall 所需 CPU/RAM/Disk/Bandwidth 从平台 Instance 商业真相读取，不从 Agent 推断。协议错误统一映射为 NODE_OFFLINE、PROVIDER_TIMEOUT、INSTANCE_NOT_FOUND 或 UNKNOWN_PROVIDER_ERROR；不支持的能力仍必须返回 UNSUPPORTED_OPERATION。
+
+V2 normalizes `shared_ipv4`, `port_forward`, and `traffic_meter`. Health polling persists normalized status, version, latency, capabilities and inventory history; credentials and raw error text are excluded from public/admin list responses. NAT and traffic calls must be idempotent under the same platform key. An adapter that does not implement a declared capability must return `UNSUPPORTED_OPERATION`.
