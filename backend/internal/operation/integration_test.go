@@ -49,7 +49,8 @@ func TestOperationQueueRetryAndRecovery(t *testing.T) {
 	}
 	repository := NewPostgresRepository(pool)
 	service := NewService(repository)
-	request := CreateRequest{Type: "test.retry", ResourceType: "instance", ResourceID: uuid.New(), IdempotencyKey: "operation-test-" + uuid.NewString(), TraceID: uuid.NewString(), UserID: &userID, MaxRetries: 2, Steps: []StepDefinition{{Key: "allocate", Order: 1}}}
+	deadline := time.Now().UTC().Add(10 * time.Minute)
+	request := CreateRequest{Type: "test.retry", ResourceType: "instance", ResourceID: uuid.New(), IdempotencyKey: "operation-test-" + uuid.NewString(), TraceID: uuid.NewString(), UserID: &userID, MaxRetries: 2, Steps: []StepDefinition{{Key: "allocate", Order: 1}}, DeadlineAt: &deadline}
 
 	var wait sync.WaitGroup
 	results := make(chan Operation, 2)
@@ -78,6 +79,13 @@ func TestOperationQueueRetryAndRecovery(t *testing.T) {
 		} else if created.ID != operationID {
 			t.Fatalf("idempotent creates returned %s and %s", operationID, created.ID)
 		}
+	}
+	replay := request
+	replayDeadline := deadline.Add(time.Second)
+	replay.DeadlineAt = &replayDeadline
+	replayed, err := service.Create(ctx, replay)
+	if err != nil || replayed.ID != operationID {
+		t.Fatalf("server deadline changed idempotent result: id=%s error=%v", replayed.ID, err)
 	}
 
 	registry := NewWorkflowRegistry()

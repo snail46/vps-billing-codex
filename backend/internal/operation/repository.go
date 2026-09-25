@@ -487,7 +487,7 @@ func publicOperation(row db.Operation) Operation {
 }
 
 func sameRequest(row db.Operation, request CreateRequest) bool {
-	return row.Type == request.Type && row.ResourceType == request.ResourceType && row.ResourceID == request.ResourceID && equalUUID(row.UserID, request.UserID) && equalUUID(row.ActorAdminID, request.ActorAdminID) && equalUUID(row.ParentOperationID, request.ParentID) && equalJSON(row.Input, nonNilJSON(request.Input)) && equalTime(row.DeadlineAt, request.DeadlineAt)
+	return row.Type == request.Type && row.ResourceType == request.ResourceType && row.ResourceID == request.ResourceID && equalUUID(row.UserID, request.UserID) && equalUUID(row.ActorAdminID, request.ActorAdminID) && equalUUID(row.ParentOperationID, request.ParentID) && equalJSON(row.Input, nonNilJSON(request.Input))
 }
 func equalUUID(left, right *uuid.UUID) bool {
 	if left == nil || right == nil {
@@ -499,13 +499,6 @@ func equalJSON(left, right []byte) bool {
 	var leftValue, rightValue any
 	return json.Unmarshal(left, &leftValue) == nil && json.Unmarshal(right, &rightValue) == nil && reflect.DeepEqual(leftValue, rightValue)
 }
-func equalTime(left pgtype.Timestamptz, right *time.Time) bool {
-	if !left.Valid || right == nil {
-		return !left.Valid && right == nil
-	}
-	return left.Time.UTC().Equal(right.UTC())
-}
-
 func createEvent(ctx context.Context, queries *db.Queries, eventType string, row db.Operation, extra map[string]any) error {
 	eventID := newID()
 	data := map[string]any{"operation_id": row.ID, "user_id": row.UserID, "status": row.Status, "phase": row.Phase.String, "progress": row.Progress, "message_key": row.MessageKey.String, "retryable": row.Retryable, "error_code": row.ErrorCode.String, "trace_id": row.TraceID}
