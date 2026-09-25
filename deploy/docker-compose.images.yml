@@ -1,7 +1,7 @@
 name: vps-billing
 
 x-backend-image: &backend-image
-  image: ghcr.io/snail46/vps-billing-codex/backend:${VPS_BILLING_IMAGE_TAG:-v1}
+  image: ghcr.io/snail46/vps-billing-codex/backend:${VPS_BILLING_IMAGE_TAG:-v2}
   pull_policy: always
 
 x-backend-environment: &backend-environment
@@ -104,19 +104,19 @@ services:
       migrate: {condition: service_completed_successfully}
 
   user-web:
-    image: ghcr.io/snail46/vps-billing-codex/user-web:${VPS_BILLING_IMAGE_TAG:-v1}
+    image: ghcr.io/snail46/vps-billing-codex/user-web:${VPS_BILLING_IMAGE_TAG:-v2}
     pull_policy: always
     depends_on:
       server: {condition: service_healthy}
 
   admin-web:
-    image: ghcr.io/snail46/vps-billing-codex/admin-web:${VPS_BILLING_IMAGE_TAG:-v1}
+    image: ghcr.io/snail46/vps-billing-codex/admin-web:${VPS_BILLING_IMAGE_TAG:-v2}
     pull_policy: always
     depends_on:
       server: {condition: service_healthy}
 
   reverse-proxy:
-    image: ghcr.io/snail46/vps-billing-codex/gateway:${VPS_BILLING_IMAGE_TAG:-v1}
+    image: ghcr.io/snail46/vps-billing-codex/gateway:${VPS_BILLING_IMAGE_TAG:-v2}
     pull_policy: always
     ports:
       - "${APP_PORT:-9090}:80"

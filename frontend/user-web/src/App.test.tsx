@@ -2,28 +2,30 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import { Login } from "./App";
+import { AuthScreen } from "./App";
 
-describe("admin login", () => {
-  it("renders a submit button so clicking sign in submits the form in en-US", () => {
+describe("user web auth screen", () => {
+  it("renders login form with email, password and submit button in en-US", () => {
     const queryClient = new QueryClient();
     const html = renderToStaticMarkup(
       <QueryClientProvider client={queryClient}>
-        <Login locale="en-US" setLocale={() => undefined} t={(key) => key} success={() => undefined} />
+        <AuthScreen locale="en-US" setLocale={() => undefined} t={(key) => key} onAuthenticated={() => undefined} />
       </QueryClientProvider>,
     );
 
     expect(html).toContain('type="email"');
     expect(html).toContain('type="password"');
-    expect(html).toContain('pattern="[0-9]{6}"');
+    expect(html).toContain('minLength="12"');
+    expect(html).toContain('maxLength="128"');
     expect(html).toContain('<button class="button" type="submit">auth.login</button>');
+    expect(html).toContain('auth.switchToRegister');
   });
 
-  it("renders login form in zh-CN locale", () => {
+  it("renders in zh-CN locale without error", () => {
     const queryClient = new QueryClient();
     const html = renderToStaticMarkup(
       <QueryClientProvider client={queryClient}>
-        <Login locale="zh-CN" setLocale={() => undefined} t={(key) => key} success={() => undefined} />
+        <AuthScreen locale="zh-CN" setLocale={() => undefined} t={(key) => key} onAuthenticated={() => undefined} />
       </QueryClientProvider>,
     );
 

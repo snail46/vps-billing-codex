@@ -2,7 +2,7 @@ name: Container Images
 
 on:
   push:
-    branches: [v1-release]
+    branches: [v1-release, v2-release, codex/v2-release]
     tags: ["v*"]
   workflow_dispatch:
 
@@ -43,7 +43,8 @@ jobs:
         with:
           images: ghcr.io/${{ github.repository }}/${{ matrix.component }}
           tags: |
-            type=raw,value=v1
+            type=raw,value=v2,enable=${{ github.ref == 'refs/heads/v2-release' || github.ref == 'refs/heads/codex/v2-release' }}
+            type=raw,value=v1,enable=${{ github.ref == 'refs/heads/v1-release' }}
             type=ref,event=tag
             type=sha,prefix=sha-
       - name: Build and push

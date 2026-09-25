@@ -204,3 +204,125 @@ th { color: #526078; font-size: 13px; text-transform: uppercase; }
   white-space: nowrap;
   width: 1px;
 }
+
+.quick-actions-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.quick-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: #ffffff;
+  border: 1px solid #dfe5ef;
+  border-radius: 8px;
+  padding: 10px 16px;
+  font-weight: 600;
+  color: #155eef;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+.quick-action-btn:hover {
+  background: #f4f7fb;
+  border-color: #b8c2d4;
+}
+
+.dashboard-sections {
+  display: grid;
+  gap: 24px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 24px;
+}
+@media (max-width: 800px) {
+  .dashboard-sections {
+    grid-template-columns: 1fr;
+  }
+}
+
+.copy-btn {
+  background: #f4f7fb;
+  border: 1px solid #dfe5ef;
+  border-radius: 6px;
+  color: #526078;
+  cursor: pointer;
+  font-size: 12px;
+  margin-left: 8px;
+  padding: 2px 8px;
+  transition: all 0.15s ease;
+}
+.copy-btn:hover {
+  background: #eaf0ff;
+  color: #1049b7;
+  border-color: #b8c2d4;
+}
+.copy-btn[data-copied="true"] {
+  background: #dcfae6;
+  color: #067647;
+  border-color: #a6f4c5;
+}
+
+.filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.detail-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 12px 0 20px;
+}
+.detail-table th, .detail-table td {
+  padding: 8px 12px;
+  border-bottom: 1px solid #edf0f5;
+  text-align: left;
+}
+.detail-table th {
+  color: #526078;
+  width: 35%;
+  font-weight: 600;
+}
+
+.admin-kv-table {
+  background: #ffffff;
+  border: 1px solid #dfe5ef;
+  border-radius: 8px;
+  margin: 12px 0 16px;
+  width: 100%;
+}
+.admin-kv-table td {
+  padding: 8px 12px;
+  font-size: 13px;
+}
+.admin-kv-table td:first-child {
+  color: #526078;
+  font-weight: 600;
+  width: 30%;
+  background: #fafbfc;
+}
+
+.progress-bar-wrap {
+  background: #eaecf0;
+  border-radius: 999px;
+  height: 8px;
+  overflow: hidden;
+  margin: 8px 0;
+  width: 100%;
+}
+.progress-bar-fill {
+  background: #155eef;
+  height: 100%;
+  transition: width 0.3s ease;
+}
+.progress-bar-fill--warning {
+  background: #f79009;
+}
+.progress-bar-fill--danger {
+  background: #d92d20;
+}
+
