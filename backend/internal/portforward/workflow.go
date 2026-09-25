@@ -31,6 +31,14 @@ type target struct {
 
 type Repository struct{ pool *pgxpool.Pool }
 
+type persistenceError struct {
+	code string
+	err  error
+}
+
+func (e *persistenceError) Error() string { return e.err.Error() }
+func (e *persistenceError) Unwrap() error { return e.err }
+
 func NewRepository(pool *pgxpool.Pool) *Repository { return &Repository{pool: pool} }
 
 func (r *Repository) context(ctx context.Context, operationID uuid.UUID) (target, error) {
@@ -103,15 +111,15 @@ func (r *Repository) persistAdd(ctx context.Context, value target, mapping provi
 		VALUES($1,$2,$3,$4::inet,$5,$6,$7,'active',$8,$9)
 		ON CONFLICT(operation_id) WHERE operation_id IS NOT NULL DO UPDATE SET status='active',provider_mapping_id=EXCLUDED.provider_mapping_id,error_code=NULL,updated_at=now()`, portID, value.instanceID, mapping.Protocol, value.publicIP, mapping.PublicPort, mapping.GuestPort, mapping.Description, mapping.ProviderMappingID, value.operationID)
 	if err != nil {
-		return fmt.Errorf("insert port forward: %w", err)
+		return &persistenceError{code: "PORT_FORWARD_MAPPING_PERSIST_FAILED", err: fmt.Errorf("insert port forward: %w", err)}
 	}
 	_, err = tx.Exec(ctx, `INSERT INTO audit_events(id,actor_type,actor_id,action,resource_type,resource_id,after_data,trace_id)
 		SELECT $1,'user',$2,'port_forward.created','port_forward',$3,jsonb_build_object('instance_id',$4,'protocol',$5,'public_port',$6,'guest_port',$7),trace_id FROM operations WHERE id=$8`, uuid.New(), value.userID, portID, value.instanceID, mapping.Protocol, mapping.PublicPort, mapping.GuestPort, value.operationID)
 	if err != nil {
-		return fmt.Errorf("audit port forward creation: %w", err)
+		return &persistenceError{code: "PORT_FORWARD_AUDIT_FAILED", err: fmt.Errorf("audit port forward creation: %w", err)}
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("commit port forward creation: %w", err)
+		return &persistenceError{code: "PORT_FORWARD_COMMIT_FAILED", err: fmt.Errorf("commit port forward creation: %w", err)}
 	}
 	return nil
 }
@@ -205,7 +213,12 @@ func (w *Workflow) Execute(ctx context.Context, execution *operation.Execution) 
 			return workflowError("PORT_FORWARD_VERIFY_FAILED", true, errors.New("provider mapping not visible after add"))
 		}
 		if err := w.repository.persistAdd(ctx, value, mapping); err != nil {
-			return workflowError("PORT_FORWARD_PERSIST_FAILED", true, err)
+			code := "PORT_FORWARD_PERSIST_FAILED"
+			var persistErr *persistenceError
+			if errors.As(err, &persistErr) {
+				code = persistErr.code
+			}
+			return workflowError(code, true, err)
 		}
 	} else if err := w.repository.persistDelete(ctx, value); err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return workflowError("PORT_FORWARD_PERSIST_FAILED", true, err)
