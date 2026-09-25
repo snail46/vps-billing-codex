@@ -120,7 +120,7 @@ func (r *Repository) EnsureForPaidOrder(ctx context.Context, orderID uuid.UUID, 
 		operationRow, createErr = queries.CreateOperation(ctx, db.CreateOperationParams{
 			ID: operationID, Type: "provision", ResourceType: "instance", ResourceID: instance.ID,
 			MessageKey: text("operation.queued"), IdempotencyKey: idempotencyKey,
-			MaxRetries: 5, TraceID: traceID, UserID: &purchase.UserID,
+			MaxRetries: 5, TraceID: traceID, UserID: &purchase.UserID, Input: []byte("{}"),
 		})
 		if createErr != nil {
 			return 0, createErr
