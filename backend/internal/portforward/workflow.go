@@ -103,14 +103,17 @@ func (r *Repository) persistAdd(ctx context.Context, value target, mapping provi
 		VALUES($1,$2,$3,$4::inet,$5,$6,$7,'active',$8,$9)
 		ON CONFLICT(operation_id) WHERE operation_id IS NOT NULL DO UPDATE SET status='active',provider_mapping_id=EXCLUDED.provider_mapping_id,error_code=NULL,updated_at=now()`, portID, value.instanceID, mapping.Protocol, value.publicIP, mapping.PublicPort, mapping.GuestPort, mapping.Description, mapping.ProviderMappingID, value.operationID)
 	if err != nil {
-		return err
+		return fmt.Errorf("insert port forward: %w", err)
 	}
 	_, err = tx.Exec(ctx, `INSERT INTO audit_events(id,actor_type,actor_id,action,resource_type,resource_id,after_data,trace_id)
 		SELECT $1,'user',$2,'port_forward.created','port_forward',$3,jsonb_build_object('instance_id',$4,'protocol',$5,'public_port',$6,'guest_port',$7),trace_id FROM operations WHERE id=$8`, uuid.New(), value.userID, portID, value.instanceID, mapping.Protocol, mapping.PublicPort, mapping.GuestPort, value.operationID)
 	if err != nil {
-		return err
+		return fmt.Errorf("audit port forward creation: %w", err)
 	}
-	return tx.Commit(ctx)
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit port forward creation: %w", err)
+	}
+	return nil
 }
 
 func (r *Repository) persistDelete(ctx context.Context, value target) error {
