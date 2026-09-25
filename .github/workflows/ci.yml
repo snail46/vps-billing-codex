@@ -209,12 +209,18 @@ jobs:
           stage="create idempotent NAT mapping"
           nat=$(curl --fail-with-body --show-error --cookie /tmp/user.cookies -H 'Content-Type: application/json' -H "X-CSRF-Token: $csrf" -H 'Idempotency-Key: ci-nat-add-1' -d '{"protocol":"tcp","public_port":32001,"guest_port":22,"description":"CI SSH"}' "http://localhost:9090/api/v1/instances/$instance_id/port-forwards")
           nat_operation_id=$(echo "$nat" | jq -er '.data.operation_id')
+          nat_operation=''
           for wait_attempt in $(seq 1 30); do
-            nat_status=$(curl --fail-with-body --silent --show-error --cookie /tmp/user.cookies "http://localhost:9090/api/v1/operations/$nat_operation_id" | jq -r '.data.status')
+            nat_operation=$(curl --fail-with-body --silent --show-error --cookie /tmp/user.cookies "http://localhost:9090/api/v1/operations/$nat_operation_id")
+            nat_status=$(echo "$nat_operation" | jq -r '.data.status')
             test "$nat_status" = "succeeded" && break
             sleep 1
           done
-          test "$nat_status" = "succeeded"
+          if [ "$nat_status" != "succeeded" ]; then
+            diagnostic=$(echo "$nat_operation" | jq -c '.data | {status,phase,error_code,message_key,steps,attempts}' | sed 's/%/%25/g; s/\r/%0D/g; s/\n/%0A/g')
+            echo "::error title=NAT operation failed::$diagnostic"
+            exit 1
+          fi
           curl --fail-with-body --show-error --cookie /tmp/user.cookies -H 'Content-Type: application/json' -H "X-CSRF-Token: $csrf" -H 'Idempotency-Key: ci-nat-add-1' -d '{"protocol":"tcp","public_port":32001,"guest_port":22,"description":"CI SSH"}' "http://localhost:9090/api/v1/instances/$instance_id/port-forwards" | jq -e --arg id "$nat_operation_id" '.data.operation_id == $id'
           mappings=$(curl --fail-with-body --show-error --cookie /tmp/user.cookies "http://localhost:9090/api/v1/instances/$instance_id/port-forwards")
           mapping_id=$(echo "$mappings" | jq -er '.data.items | if length == 1 then .[0].id else error("NAT mapping count mismatch") end')
