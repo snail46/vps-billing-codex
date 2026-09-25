@@ -114,7 +114,7 @@ func (r *Repository) persistAdd(ctx context.Context, value target, mapping provi
 		return &persistenceError{code: "PORT_FORWARD_MAPPING_PERSIST_FAILED", err: fmt.Errorf("insert port forward: %w", err)}
 	}
 	_, err = tx.Exec(ctx, `INSERT INTO audit_events(id,actor_type,actor_id,action,resource_type,resource_id,after_data,trace_id)
-		SELECT $1,'user',$2,'port_forward.created','port_forward',$3,jsonb_build_object('instance_id',$4,'protocol',$5,'public_port',$6,'guest_port',$7),trace_id FROM operations WHERE id=$8`, uuid.New(), value.userID, portID, value.instanceID, mapping.Protocol, mapping.PublicPort, mapping.GuestPort, value.operationID)
+		SELECT $1,'user',$2,'port_forward.created','port_forward',$3,jsonb_build_object('instance_id',$4::uuid,'protocol',$5::text,'public_port',$6::integer,'guest_port',$7::integer),trace_id FROM operations WHERE id=$8`, uuid.New(), value.userID, portID, value.instanceID, mapping.Protocol, mapping.PublicPort, mapping.GuestPort, value.operationID)
 	if err != nil {
 		return &persistenceError{code: "PORT_FORWARD_AUDIT_FAILED", err: fmt.Errorf("audit port forward creation: %w", err)}
 	}
@@ -138,7 +138,7 @@ func (r *Repository) persistDelete(ctx context.Context, value target) error {
 		return pgx.ErrNoRows
 	}
 	_, err = tx.Exec(ctx, `INSERT INTO audit_events(id,actor_type,actor_id,action,resource_type,resource_id,after_data,trace_id)
-		SELECT $1,'user',$2,'port_forward.deleted','port_forward',$3,jsonb_build_object('instance_id',$4),trace_id FROM operations WHERE id=$5`, uuid.New(), value.userID, value.resourceID, value.instanceID, value.operationID)
+		SELECT $1,'user',$2,'port_forward.deleted','port_forward',$3,jsonb_build_object('instance_id',$4::uuid),trace_id FROM operations WHERE id=$5`, uuid.New(), value.userID, value.resourceID, value.instanceID, value.operationID)
 	if err != nil {
 		return err
 	}
